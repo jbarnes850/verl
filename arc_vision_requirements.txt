@@ -32,4 +32,4 @@ uvicorn==0.35.0
 uvloop==0.21.0
 wandb==0.21.0
 xgrammar==0.1.19
-decord=0.6.0
+decord==0.6.0
