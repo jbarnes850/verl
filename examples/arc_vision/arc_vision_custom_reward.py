@@ -365,16 +365,43 @@ def arc_vision_compute_reward(data_source: str,
     # ==============================================================================
     import re
     
-    # Extract predicted bbox from solution
-    bbox_pattern = r'<bbox>\s*\[([\d\.\s,]+)\]\s*</bbox>'
-    match = re.search(bbox_pattern, solution_str, re.IGNORECASE)
-    
+    # Extract predicted bbox from solution - try multiple formats
     predicted_bbox = None
     iou = 0.0
     
-    if match:
+    # Try multiple bbox patterns
+    patterns = [
+        r'<bbox>\s*\[([\d\.\s,]+)\]\s*</bbox>',  # Original format
+        r'\[([\d\.\s,]+)\]',  # Simple bracket format
+        r'"bbox_2d":\s*\[([\d\s,]+)\]',  # JSON format with pixels
+        r'bbox:\s*\[([\d\.\s,]+)\]',  # Colon format
+        r'coordinates[:\s]+\[([\d\.\s,]+)\]'  # Alternative wording
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, solution_str, re.IGNORECASE)
+        if match:
+            try:
+                coords = [float(x.strip()) for x in match.group(1).split(',')]
+                # Convert pixel coords to normalized if values > 1
+                if any(c > 1.0 for c in coords):
+                    # Assume 1920x1080 screen
+                    predicted_bbox = [
+                        coords[0] / 1920.0,
+                        coords[1] / 1080.0,
+                        coords[2] / 1920.0,
+                        coords[3] / 1080.0
+                    ]
+                else:
+                    predicted_bbox = coords
+                break
+            except:
+                continue
+    
+    if predicted_bbox:
         try:
-            predicted_bbox = [float(x.strip()) for x in match.group(1).split(',')]
+            # Validate bbox values are in [0, 1] range
+            predicted_bbox = [max(0.0, min(1.0, x)) for x in predicted_bbox]
             
             # Calculate IoU
             x1 = max(predicted_bbox[0], ground_truth[0])
@@ -393,7 +420,7 @@ def arc_vision_compute_reward(data_source: str,
             
             r_task = iou
         except Exception as e:
-            logger.warning(f"Failed to parse bbox: {e}")
+            logger.warning(f"Failed to calculate IoU: {e}")
             r_task = 0.0
     else:
         r_task = 0.0
