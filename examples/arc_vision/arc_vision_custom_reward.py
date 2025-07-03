@@ -369,13 +369,18 @@ def arc_vision_compute_reward(data_source: str,
     predicted_bbox = None
     iou = 0.0
     
-    # Try multiple bbox patterns
+    # Try multiple bbox patterns - Qwen2.5-VL supports various formats
     patterns = [
-        r'<bbox>\s*\[([\d\.\s,]+)\]\s*</bbox>',  # Original format
-        r'\[([\d\.\s,]+)\]',  # Simple bracket format
-        r'"bbox_2d":\s*\[([\d\s,]+)\]',  # JSON format with pixels
-        r'bbox:\s*\[([\d\.\s,]+)\]',  # Colon format
-        r'coordinates[:\s]+\[([\d\.\s,]+)\]'  # Alternative wording
+        r'<bbox>\s*\[([\d\.\s,\-]+)\]\s*</bbox>',  # Tagged format
+        r'(?:^|\s)\[([\d\.\s,\-]+)\](?:\s|$)',  # Standalone bracket format
+        r'"bbox":\s*\[([\d\s,\-]+)\]',  # JSON format
+        r'"bbox_2d":\s*\[([\d\s,\-]+)\]',  # JSON format with pixels
+        r'bbox:\s*\[([\d\.\s,\-]+)\]',  # Colon format
+        r'coordinates[:\s]+\[([\d\.\s,\-]+)\]',  # Alternative wording
+        r'box:\s*\[([\d\.\s,\-]+)\]',  # Shortened version
+        r'bounding box:\s*\[([\d\.\s,\-]+)\]',  # Full phrase
+        r'<click>([\d\s,\-]+)</click>',  # Qwen2.5-VL click format
+        r'<point>([\d\s,\-]+)</point>',  # Qwen2.5-VL point format
     ]
     
     for pattern in patterns:
@@ -383,14 +388,47 @@ def arc_vision_compute_reward(data_source: str,
         if match:
             try:
                 coords = [float(x.strip()) for x in match.group(1).split(',')]
+                
+                # Ensure we have exactly 4 coordinates
+                if len(coords) != 4:
+                    continue
+                
+                # Fix coordinate ordering if needed (ensure x1 < x2, y1 < y2)
+                if len(coords) == 4:
+                    x1, y1, x2, y2 = coords
+                    coords = [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)]
+                
                 # Convert pixel coords to normalized if values > 1
                 if any(c > 1.0 for c in coords):
-                    # Assume 1920x1080 screen
+                    # Try to infer image dimensions from the coordinates
+                    # Most screens are 16:9, so we'll try common resolutions
+                    max_x = max(coords[0], coords[2])
+                    max_y = max(coords[1], coords[3])
+                    
+                    # Common resolutions to try
+                    resolutions = [
+                        (1920, 1080),  # Full HD
+                        (1280, 720),   # HD
+                        (2560, 1440),  # 2K
+                        (3840, 2160),  # 4K
+                        (1366, 768),   # Common laptop
+                        (1440, 900),   # Common monitor
+                        (1600, 900),   # Widescreen
+                    ]
+                    
+                    # Find best matching resolution
+                    best_res = (1920, 1080)  # Default
+                    for res_x, res_y in resolutions:
+                        if max_x <= res_x and max_y <= res_y:
+                            best_res = (res_x, res_y)
+                            break
+                    
+                    # Normalize using best resolution
                     predicted_bbox = [
-                        coords[0] / 1920.0,
-                        coords[1] / 1080.0,
-                        coords[2] / 1920.0,
-                        coords[3] / 1080.0
+                        coords[0] / best_res[0],
+                        coords[1] / best_res[1],
+                        coords[2] / best_res[0],
+                        coords[3] / best_res[1]
                     ]
                 else:
                     predicted_bbox = coords
@@ -402,6 +440,11 @@ def arc_vision_compute_reward(data_source: str,
         try:
             # Validate bbox values are in [0, 1] range
             predicted_bbox = [max(0.0, min(1.0, x)) for x in predicted_bbox]
+            
+            # Log coordinate conversion for debugging
+            logger.debug(f"Original coords from model: {match.group(1) if 'match' in locals() else 'N/A'}")
+            logger.debug(f"Converted normalized bbox: {predicted_bbox}")
+            logger.debug(f"Ground truth bbox: {ground_truth}")
             
             # Calculate IoU
             x1 = max(predicted_bbox[0], ground_truth[0])
@@ -421,8 +464,10 @@ def arc_vision_compute_reward(data_source: str,
             r_task = iou
         except Exception as e:
             logger.warning(f"Failed to calculate IoU: {e}")
+            logger.warning(f"Predicted bbox: {predicted_bbox}, Ground truth: {ground_truth}")
             r_task = 0.0
     else:
+        logger.warning(f"No bbox found in response. First 200 chars: {solution_str[:200]}")
         r_task = 0.0
     
     # ==============================================================================

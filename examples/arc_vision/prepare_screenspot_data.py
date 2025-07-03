@@ -49,7 +49,14 @@ First, analyze the image and describe what you observe about the target element:
 - Do you need to use tools to see it better?
 </reasoning>
 
-Then provide the bounding box coordinates [x1, y1, x2, y2] in normalized format (0-1).
+Then provide the bounding box coordinates for the target element.
+
+IMPORTANT: Output the coordinates as a simple array: [x1, y1, x2, y2]
+- x1, y1 = top-left corner
+- x2, y2 = bottom-right corner
+- You may use either pixel coordinates OR normalized coordinates (0-1)
+- Just ensure your output is a clear array format like: [100, 200, 300, 400]
+
 If you need to use tools, you can call:
 - zoom_ui_element: To zoom into a region for better visibility
 - wait_for_ui: To wait for elements to load
