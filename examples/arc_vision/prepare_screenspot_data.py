@@ -105,8 +105,10 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     if image:
         image.save(full_image_path)
     
-    # Use relative path for portability (relative to parquet file location)
-    image_path = os.path.join(f"{split}_images", image_filename)
+    # Use absolute path for container environment
+    # VERL copies parquet files to cache but not image directories,
+    # so we need absolute paths to find the images
+    image_path = full_image_path
     
     # Create reasoning-enhanced prompt
     enhanced_prompt = create_reasoning_prompt(instruction)
