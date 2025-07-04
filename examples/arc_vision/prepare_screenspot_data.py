@@ -17,6 +17,10 @@ Prepare ScreenSpot dataset for Arc Vision RL training.
 This script converts the official ScreenSpot dataset from Hugging Face
 (https://huggingface.co/datasets/rootsautomation/ScreenSpot) 
 to VERL-compatible parquet format.
+
+IMPORTANT: This script uses the <|image_pad|> token that Qwen2.5-VL expects
+for image placeholders in prompts. This is critical for the model to properly
+process images during training.
 """
 
 import argparse
@@ -35,8 +39,10 @@ def create_reasoning_prompt(instruction: str) -> str:
     
     This prompt encourages the model to think about whether it needs tools
     before attempting detection.
+    
+    Note: Uses <|image_pad|> token that Qwen2.5-VL expects for image placeholder.
     """
-    prompt = f"""<image>
+    prompt = f"""<|image_pad|>
 {instruction}
 
 First, analyze the image and describe what you observe about the target element:
