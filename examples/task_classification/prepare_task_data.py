@@ -520,8 +520,7 @@ Answer with ONLY "on-task" or "off-task":"""
                     }
                 ],
                 stream=False,
-                max_tokens=10,
-                timeout=30  # Add timeout to prevent hanging
+                max_tokens=10
             )
             
             # Extract response
