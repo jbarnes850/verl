@@ -47,7 +47,7 @@ python3 -m verl.trainer.main_ppo \
     data.image_key=images \
     data.filter_overlong_prompts=True \
     data.truncation=error \
-    data.reward_fn_key=ground_truth \
+    data.reward_fn_key=data_source \
     \
     actor_rollout_ref.model.path="$MODEL_PATH" \
     actor_rollout_ref.model.trust_remote_code=true \
