@@ -9,6 +9,7 @@ This script tests that:
 4. IoU calculation works with the normalized coordinates
 """
 
+import os
 import re
 import torch
 from datasets import load_dataset
@@ -40,7 +41,7 @@ def main():
     print("\n1. Loading dataset...")
     dataset = load_dataset(
         'parquet', 
-        data_files='/root/data/arc_vision/screenspot/train.parquet', 
+        data_files=os.path.expanduser('~/data/arc_vision/screenspot/train.parquet'), 
         split='train'
     )
     print(f"✓ Dataset loaded with {len(dataset)} samples")
@@ -56,11 +57,15 @@ def main():
     model_path = 'Qwen/Qwen2.5-VL-3B-Instruct'
     
     # Load the model using Qwen2_5_VLForConditionalGeneration
+    # Check if CUDA is available
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_path,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
-        device_map='cuda:0'
+        torch_dtype=dtype,
+        device_map=device if torch.cuda.is_available() else None
     )
     
     # Load the processor
@@ -85,7 +90,7 @@ def main():
         text=text, 
         images=[image], 
         return_tensors='pt'
-    ).to('cuda:0')
+    ).to(device)
     
     # Generate response
     with torch.no_grad():

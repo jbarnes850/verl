@@ -40,9 +40,12 @@ def create_reasoning_prompt(instruction: str) -> str:
     This prompt encourages the model to think about whether it needs tools
     before attempting detection.
     
-    Note: Uses <|image_pad|> token that Qwen2.5-VL expects for image placeholder.
+    Note: Uses the vision tokens that Qwen2.5-VL expects for image placeholder.
+    The actual image embedding will be handled by the model's processor.
     """
-    prompt = f"""<|image_pad|>
+    # For Qwen2.5-VL, we use <image> in the prompt text
+    # The processor will convert this to the appropriate vision tokens
+    prompt = f"""<image>
 {instruction}
 
 First, analyze the image and describe what you observe about the target element:
