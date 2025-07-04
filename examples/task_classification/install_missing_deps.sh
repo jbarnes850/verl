@@ -3,8 +3,16 @@
 
 echo "Installing missing dependencies..."
 
+# CRITICAL: Install correct transformers version (must be < 4.53)
+echo "Installing transformers < 4.53 (required by VERL)..."
+pip install "transformers<4.53"
+
 # Install vLLM (core inference engine - CRITICAL)
 pip install vllm
+
+# Install prerequisites for flash-attention
+echo "Installing build prerequisites..."
+pip install wheel setuptools
 
 # Install flash-attention (CRITICAL for VERL training)
 # Note: This requires CUDA and may take time to compile
