@@ -143,6 +143,7 @@ Answer with ONLY "on-task" or "off-task":"""
         'predictions': predictions
     }
     
+    # Save to same directory as validation data
     output_path = Path(data_path).parent / "baseline_results.json"
     with open(output_path, 'w') as f:
         json.dump(results, f, indent=2)

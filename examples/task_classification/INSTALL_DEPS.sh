@@ -16,6 +16,8 @@ pip install protobuf  # For some models
 pip install torchvision  # Required for Qwen2.5-VL
 pip install matplotlib  # For evaluation plots
 pip install scikit-learn  # For metrics
+pip install seaborn  # For evaluation visualizations
+pip install msgspec  # Required by VERL
 
 echo "Dependencies installed!"
 echo "Don't forget to export your HF_TOKEN:"
