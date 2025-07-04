@@ -52,8 +52,8 @@ Then provide the bounding box coordinates for the target element.
 IMPORTANT: Output the coordinates as a simple array: [x1, y1, x2, y2]
 - x1, y1 = top-left corner
 - x2, y2 = bottom-right corner
-- You may use either pixel coordinates OR normalized coordinates (0-1)
-- Just ensure your output is a clear array format like: [100, 200, 300, 400]
+- Use normalized coordinates (values between 0 and 1)
+- Example: [0.1, 0.2, 0.3, 0.4] where 0.1 means 10% from left edge
 
 If you need to use tools, you can call:
 - zoom_ui_element: To zoom into a region for better visibility
