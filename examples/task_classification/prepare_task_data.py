@@ -347,17 +347,23 @@ class TaskDataPreparer:
             if not blip_pipeline:
                 raise RuntimeError("BLIP pipeline required for real data processing")
             
-            # Load the dataset
+            # Load the dataset (streaming for memory efficiency)
             dataset = load_dataset(dataset_name, split="train", streaming=True)
-            logger.info("✅ Loaded Open-Qwen2VL-Data with real images")
+            logger.info("✅ Loaded Open-Qwen2VL-Data in streaming mode")
             
             # Process real images with BLIP + VLM judge pipeline
             samples = []
             successful_samples = 0
             
+            logger.info(f"Starting to process {num_samples} samples...")
+            
             for i, item in enumerate(dataset):
                 if successful_samples >= num_samples:
                     break
+                    
+                # Progress logging
+                if i % 10 == 0:
+                    logger.info(f"Processing item {i}, successful: {successful_samples}/{num_samples}")
                     
                 try:
                     # Step 1: Load real image from URL
@@ -501,6 +507,7 @@ Answer with ONLY "on-task" or "off-task":"""
                     "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}
                 }
 
+            logger.debug(f"Calling HF API for image classification...")
             stream = self.hf_client.chat.completions.create(
                 model=self.vlm_judge_model,
                 messages=[
@@ -513,7 +520,8 @@ Answer with ONLY "on-task" or "off-task":"""
                     }
                 ],
                 stream=False,
-                max_tokens=10
+                max_tokens=10,
+                timeout=30  # Add timeout to prevent hanging
             )
             
             # Extract response
@@ -610,12 +618,14 @@ Answer with ONLY "on-task" or "off-task":"""
             from transformers import pipeline
             
             # Use BLIP for image captioning
+            import torch
+            device = 0 if torch.cuda.is_available() else -1
             blip_pipeline = pipeline(
                 "image-to-text",
                 model="Salesforce/blip-image-captioning-base",
-                device=-1  # Use CPU to avoid GPU memory issues
+                device=device  # Use GPU if available
             )
-            logger.info("Initialized BLIP pipeline for enhanced captioning")
+            logger.info(f"Initialized BLIP pipeline on {'GPU' if device >= 0 else 'CPU'} for enhanced captioning")
             return blip_pipeline
             
         except Exception as e:
