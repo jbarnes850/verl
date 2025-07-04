@@ -53,15 +53,19 @@ First, analyze the image and describe what you observe about the target element:
 - Do you need to use tools to see it better?
 </reasoning>
 
-Then provide the bounding box coordinates for the target element.
+Then provide your confidence level and the bounding box coordinates:
 
-IMPORTANT: Output the coordinates as a simple array: [x1, y1, x2, y2]
-- x1, y1 = top-left corner
-- x2, y2 = bottom-right corner
-- Use normalized coordinates (values between 0 and 1)
-- Example: [0.1, 0.2, 0.3, 0.4] where 0.1 means 10% from left edge
+<confidence>0.X</confidence> (your confidence from 0.0 to 1.0)
+<bbox>[x1, y1, x2, y2]</bbox>
 
-If you need to use tools, you can call:
+IMPORTANT: 
+- Confidence: 0.0 = no confidence, 1.0 = complete certainty
+- If confidence < 0.7, you should use tools before providing final answer
+- Coordinates must be normalized (values between 0 and 1)
+- x1, y1 = top-left corner; x2, y2 = bottom-right corner
+- Example: <confidence>0.85</confidence> <bbox>[0.1, 0.2, 0.3, 0.4]</bbox>
+
+If you need to use tools (when confidence < 0.7), you can call:
 - zoom_ui_element: To zoom into a region for better visibility
 - wait_for_ui: To wait for elements to load
 - inspect_element: To get additional information about UI structure"""

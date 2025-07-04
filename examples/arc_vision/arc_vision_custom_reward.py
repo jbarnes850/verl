@@ -371,7 +371,7 @@ def arc_vision_compute_reward(data_source: str,
     
     # Try multiple bbox patterns - Qwen2.5-VL supports various formats
     patterns = [
-        r'<bbox>\s*\[([\d\.\s,\-]+)\]\s*</bbox>',  # Tagged format
+        r'<bbox>\s*\[([\d\.\s,\-]+)\]\s*</bbox>',  # Tagged format (PREFERRED)
         r'(?:^|\s)\[([\d\.\s,\-]+)\](?:\s|$)',  # Standalone bracket format
         r'"bbox":\s*\[([\d\s,\-]+)\]',  # JSON format
         r'"bbox_2d":\s*\[([\d\s,\-]+)\]',  # JSON format with pixels

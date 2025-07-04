@@ -76,17 +76,31 @@ def extract_tool_usage_as_confidence_proxy(response: str) -> Dict[str, float]:
             confidence_metrics["confidence_before"] + 0.15 * len(tool_calls))
     
     # Check for explicit confidence statements
-    conf_pattern = r'confidence[:\s]+(\d+\.?\d*)'
-    conf_match = re.search(conf_pattern, response.lower())
-    if conf_match:
+    # First try the new <confidence> tag format
+    conf_tag_pattern = r'<confidence>\s*(\d+\.?\d*)\s*</confidence>'
+    conf_tag_match = re.search(conf_tag_pattern, response)
+    if conf_tag_match:
         try:
-            stated_conf = float(conf_match.group(1))
+            stated_conf = float(conf_tag_match.group(1))
             # If confidence is stated as percentage
             if stated_conf > 1:
                 stated_conf = stated_conf / 100
             confidence_metrics["stated_confidence"] = stated_conf
         except:
             pass
+    else:
+        # Fallback to older pattern
+        conf_pattern = r'confidence[:\s]+(\d+\.?\d*)'
+        conf_match = re.search(conf_pattern, response.lower())
+        if conf_match:
+            try:
+                stated_conf = float(conf_match.group(1))
+                # If confidence is stated as percentage
+                if stated_conf > 1:
+                    stated_conf = stated_conf / 100
+                confidence_metrics["stated_confidence"] = stated_conf
+            except:
+                pass
     
     return confidence_metrics
 
@@ -156,19 +170,29 @@ def compute_effective_confidence(response: str) -> Tuple[float, float]:
     # Analyze reasoning
     reasoning_confidence = analyze_reasoning_for_confidence(response)
     
-    # Combine signals
-    if tool_metrics["tool_invocations"] > 0:
-        # Tools were used - low initial confidence
-        confidence_before = min(tool_metrics["confidence_before"], reasoning_confidence)
-        confidence_after = tool_metrics["confidence_after"]
-    else:
-        # No tools used - high confidence throughout
-        confidence_before = max(reasoning_confidence, 0.7)
-        confidence_after = confidence_before
-    
-    # Use stated confidence if available
+    # Check if we have an explicit confidence statement
     if "stated_confidence" in tool_metrics:
-        confidence_after = tool_metrics["stated_confidence"]
+        # Use the explicitly stated confidence as primary signal
+        stated_conf = tool_metrics["stated_confidence"]
+        
+        if tool_metrics["tool_invocations"] > 0:
+            # Tools were used - confidence should have been low initially
+            confidence_before = min(stated_conf, 0.7)  # Cap at threshold
+            confidence_after = stated_conf  # Final stated confidence
+        else:
+            # No tools used - confidence was high throughout
+            confidence_before = stated_conf
+            confidence_after = stated_conf
+    else:
+        # No explicit confidence - fall back to inference
+        if tool_metrics["tool_invocations"] > 0:
+            # Tools were used - low initial confidence
+            confidence_before = min(tool_metrics["confidence_before"], reasoning_confidence)
+            confidence_after = tool_metrics["confidence_after"]
+        else:
+            # No tools used - use reasoning analysis or default
+            confidence_before = reasoning_confidence
+            confidence_after = confidence_before
     
     return float(confidence_before), float(confidence_after)
 
