@@ -12,9 +12,9 @@ export USE_OPTIMIZED_MODEL=0  # Disable optimized models for training stability
 export CUDA_VISIBLE_DEVICES=0,1  # Use 2 A100s (80GB each)
 
 # Data paths
-DATA_DIR=${DATA_DIR:-"test_data_quick"}
-TRAIN_DATA="$DATA_DIR/real_train.parquet"
-VAL_DATA="$DATA_DIR/real_val.parquet"
+DATA_DIR=${DATA_DIR:-"desktop_task_data"}
+TRAIN_DATA="$DATA_DIR/desktop_train.parquet"
+VAL_DATA="$DATA_DIR/desktop_val.parquet"
 
 # Check if data exists, if not generate it
 if [ ! -f "$TRAIN_DATA" ] || [ ! -f "$VAL_DATA" ]; then
@@ -24,7 +24,7 @@ if [ ! -f "$TRAIN_DATA" ] || [ ! -f "$VAL_DATA" ]; then
         echo "Please run: export HF_TOKEN=your_huggingface_token"
         exit 1
     fi
-    python prepare_task_data.py --num-samples 10 --output-dir "$DATA_DIR"
+    python prepare_desktop_data.py --num-samples 1000 --output-dir "$DATA_DIR"
     
     # Re-check if data was generated
     if [ ! -f "$TRAIN_DATA" ] || [ ! -f "$VAL_DATA" ]; then
