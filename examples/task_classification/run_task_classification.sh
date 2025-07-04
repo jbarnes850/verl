@@ -127,8 +127,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=100 \
     trainer.test_freq=50 \
     trainer.total_epochs=10 \
-    hydra.run.dir="$OUTPUT_DIR" \
-    $@
+    hydra.run.dir="$OUTPUT_DIR"
 
 echo "Training completed!"
 echo "Model saved to: $OUTPUT_DIR"
