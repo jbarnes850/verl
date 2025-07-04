@@ -43,90 +43,217 @@ class TaskDataPreparer:
             self.vlm_judge = None
         
         # Task descriptions for synthetic data generation
+        # Expanded based on research - more diverse and realistic scenarios
         self.work_tasks = [
+            # Development Tasks
             "Working on Jira ticket PROJ-123",
             "Reviewing pull request in GitHub",
-            "Writing documentation in Confluence",
             "Coding in VS Code on feature branch",
-            "Attending Zoom meeting with team",
-            "Analyzing data in Excel spreadsheet", 
+            "Writing unit tests in PyTest",
+            "Debugging application in browser",
+            "Reviewing code in GitLab",
+            "Setting up CI/CD pipeline",
+            "Creating database schema",
+            "Writing API documentation",
+            "Refactoring legacy codebase",
+            "Implementing authentication system",
+            "Optimizing database queries",
+            "Fixing production bug in main branch",
+            "Writing integration tests",
+            "Deploying application to staging",
+            
+            # Documentation & Communication
+            "Writing documentation in Confluence",
             "Responding to Slack messages from manager",
             "Creating presentation in PowerPoint",
-            "Debugging application in browser",
-            "Writing unit tests in PyTest",
-            "Reviewing code in GitLab",
             "Planning sprint in Azure DevOps",
             "Updating project wiki",
             "Conducting code review",
             "Writing technical specifications",
-            "Setting up CI/CD pipeline",
+            "Preparing quarterly report",
+            "Creating user manual for new feature",
+            "Documenting API endpoints",
+            "Writing architecture diagrams",
+            "Updating team knowledge base",
+            
+            # Meetings & Collaboration
+            "Attending Zoom meeting with team",
+            "Participating in daily standup",
+            "Leading technical design review",
+            "Client presentation via Teams",
+            "Sprint planning meeting",
+            "Retrospective session with team",
+            "One-on-one with manager",
+            "Architecture discussion meeting",
+            "Bug triage session",
+            "Demo session with stakeholders",
+            
+            # Analysis & Research
+            "Analyzing data in Excel spreadsheet",
             "Monitoring application logs",
-            "Creating database schema",
-            "Writing API documentation",
-            "Preparing quarterly report"
+            "Investigating performance bottleneck",
+            "Researching third-party libraries",
+            "Analyzing user behavior metrics",
+            "Reviewing security audit results",
+            "Performance testing analysis",
+            "Capacity planning analysis",
+            "Cost optimization research",
+            "Technical feasibility study"
         ]
         
+        # Expanded distraction scenarios for better edge case coverage
         self.distraction_scenarios = [
+            # Social Media & Entertainment
             "Browsing Reddit",
             "Watching YouTube videos", 
-            "Shopping on Amazon",
             "Checking social media",
-            "Reading news articles",
-            "Playing online games",
             "Chatting on Discord",
             "Browsing Instagram",
-            "Watching Netflix",
-            "Reading personal email",
-            "Online shopping",
-            "Playing mobile games",
             "Scrolling through Twitter",
             "Watching TikTok videos",
-            "Reading blogs"
+            "Browsing Facebook timeline",
+            "Watching Twitch streams",
+            "Reading Twitter threads",
+            "Browsing LinkedIn posts",
+            "Watching Instagram Stories",
+            
+            # Shopping & Commerce
+            "Shopping on Amazon",
+            "Online shopping",
+            "Browsing product reviews",
+            "Checking sale notifications",
+            "Comparing product prices",
+            "Reading shopping wishlists",
+            "Browsing online marketplaces",
+            
+            # Entertainment & Media
+            "Watching Netflix",
+            "Watching TikTok videos",
+            "Reading blogs",
+            "Reading news articles",
+            "Watching movie trailers",
+            "Browsing entertainment news",
+            "Reading celebrity gossip",
+            "Watching sports highlights",
+            "Reading comic strips",
+            "Browsing memes",
+            
+            # Gaming & Personal
+            "Playing online games",
+            "Playing mobile games",
+            "Reading personal email",
+            "Chatting with friends",
+            "Planning personal vacation",
+            "Looking at personal photos",
+            "Reading personal messages",
+            "Browsing dating apps",
+            "Checking weather forecast",
+            "Reading personal finance apps",
+            
+            # Ambiguous/Edge Cases
+            "Reading tech blogs (personal interest)",
+            "Watching coding tutorials (not work-related)",
+            "Personal project on GitHub",
+            "Learning new programming language (hobby)",
+            "Personal side project development",
+            "Reading career advice articles",
+            "Personal skill development",
+            "Online course for personal growth"
         ]
     
     def generate_synthetic_dataset(self, 
-                                 num_samples: int = 1000,
+                                 num_samples: int = 10000,
                                  train_ratio: float = 0.8,
-                                 confidence_threshold: float = 0.8) -> Tuple[str, str]:
+                                 confidence_threshold: float = 0.8,
+                                 curriculum_learning: bool = True) -> Tuple[str, str]:
         """Generate synthetic dataset using VLM judge.
         
         Args:
             num_samples: Total number of samples to generate
             train_ratio: Ratio for train/validation split
             confidence_threshold: Minimum confidence for VLM judge labels
+            curriculum_learning: Whether to organize data for curriculum learning
             
         Returns:
             Tuple of (train_file_path, val_file_path)
         """
         logger.info(f"Generating {num_samples} synthetic samples...")
         
-        # Generate task-scenario pairs
+        # Generate task-scenario pairs with curriculum learning support
         samples = []
         
-        for i in range(num_samples):
-            # Randomly choose task and scenario
-            task = random.choice(self.work_tasks)
+        # Separate tasks by difficulty for curriculum learning
+        if curriculum_learning:
+            # Easy cases: clear work vs clear distraction
+            easy_work_tasks = [t for t in self.work_tasks if not any(edge in t.lower() 
+                              for edge in ["personal", "hobby", "learning", "career"])]
+            easy_distraction_tasks = [t for t in self.distraction_scenarios if not any(edge in t.lower() 
+                                     for edge in ["tech", "coding", "github", "programming", "course"])]
             
-            # 50/50 split between on-task and off-task
+            # Hard cases: ambiguous or edge cases
+            hard_work_tasks = [t for t in self.work_tasks if any(edge in t.lower() 
+                              for edge in ["research", "learning", "feasibility"])]
+            hard_distraction_tasks = [t for t in self.distraction_scenarios if any(edge in t.lower() 
+                                     for edge in ["tech", "coding", "github", "programming", "course"])]
+            
+            # Generate curriculum: 60% easy, 40% hard
+            easy_count = int(num_samples * 0.6)
+            hard_count = num_samples - easy_count
+            
+            logger.info(f"Curriculum learning: {easy_count} easy samples, {hard_count} hard samples")
+        else:
+            easy_work_tasks = hard_work_tasks = self.work_tasks
+            easy_distraction_tasks = hard_distraction_tasks = self.distraction_scenarios
+            easy_count = hard_count = num_samples // 2
+        
+        # Generate easy samples first (for curriculum learning)
+        for i in range(easy_count):
             if i % 2 == 0:
-                # On-task: use work scenario
+                task = random.choice(easy_work_tasks)
                 scenario = "on-task"
                 screenshot_type = "work"
+                difficulty = "easy"
             else:
-                # Off-task: use distraction scenario
+                # Use distraction scenario description as task, making it clearly off-task
+                distraction = random.choice(easy_distraction_tasks)
+                task = random.choice(self.work_tasks)  # Real work task
                 scenario = "off-task"
                 screenshot_type = "distraction"
+                difficulty = "easy"
             
-            # Create sample
             sample = {
                 "task_description": task,
-                "screenshot": f"synthetic_screenshot_{i}.png",  # Placeholder
+                "screenshot": f"synthetic_screenshot_{i}.png",
                 "label": scenario,
                 "screenshot_type": screenshot_type,
-                "confidence": 1.0,  # High confidence for synthetic data
+                "difficulty": difficulty,
+                "confidence": 1.0,
                 "source": "synthetic"
             }
+            samples.append(sample)
+        
+        # Generate hard samples (edge cases)
+        for i in range(easy_count, num_samples):
+            if i % 2 == 0:
+                task = random.choice(hard_work_tasks)
+                scenario = "on-task"
+                screenshot_type = "work"
+                difficulty = "hard"
+            else:
+                task = random.choice(self.work_tasks)
+                scenario = "off-task"
+                screenshot_type = "distraction"
+                difficulty = "hard"
             
+            sample = {
+                "task_description": task,
+                "screenshot": f"synthetic_screenshot_{i}.png",
+                "label": scenario,
+                "screenshot_type": screenshot_type,
+                "difficulty": difficulty,
+                "confidence": 0.8,  # Lower confidence for edge cases
+                "source": "synthetic"
+            }
             samples.append(sample)
         
         # If VLM judge is available, validate high-confidence samples
@@ -362,10 +489,12 @@ def main():
     """Main data preparation script."""
     parser = argparse.ArgumentParser(description="Prepare task classification dataset")
     parser.add_argument("--output-dir", default="data", help="Output directory")
-    parser.add_argument("--num-samples", type=int, default=1000, help="Number of synthetic samples")
+    parser.add_argument("--num-samples", type=int, default=10000, help="Number of synthetic samples")
     parser.add_argument("--screenshot-dir", help="Directory with existing screenshots")
     parser.add_argument("--create-demo", action="store_true", help="Create demo screenshots")
     parser.add_argument("--confidence-threshold", type=float, default=0.8, help="VLM judge confidence threshold")
+    parser.add_argument("--curriculum-learning", action="store_true", default=True, help="Enable curriculum learning (easy->hard)")
+    parser.add_argument("--no-curriculum", action="store_true", help="Disable curriculum learning")
     
     args = parser.parse_args()
     
@@ -389,9 +518,11 @@ def main():
             logger.info(f"Saved {len(samples)} real screenshot samples to {output_file}")
     
     # Generate synthetic dataset
+    curriculum_enabled = args.curriculum_learning and not args.no_curriculum
     train_file, val_file = preparer.generate_synthetic_dataset(
         num_samples=args.num_samples,
-        confidence_threshold=args.confidence_threshold
+        confidence_threshold=args.confidence_threshold,
+        curriculum_learning=curriculum_enabled
     )
     
     logger.info("Data preparation complete!")
