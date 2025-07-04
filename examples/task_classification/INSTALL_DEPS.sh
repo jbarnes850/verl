@@ -13,6 +13,9 @@ pip install huggingface-hub  # For HF API access
 pip install accelerate  # For faster model loading
 pip install sentencepiece  # For tokenization
 pip install protobuf  # For some models
+pip install torchvision  # Required for Qwen2.5-VL
+pip install matplotlib  # For evaluation plots
+pip install scikit-learn  # For metrics
 
 echo "Dependencies installed!"
 echo "Don't forget to export your HF_TOKEN:"

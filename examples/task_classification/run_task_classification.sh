@@ -43,12 +43,15 @@ echo "Validation data: $VAL_DATA"
 echo "Output directory: $OUTPUT_DIR"
 echo "Engine: $ENGINE"
 
-# Run baseline evaluation first
+# Run baseline evaluation first (optional - skip if it fails)
 echo ""
 echo "=== RUNNING ZERO-SHOT BASELINE ==="
 echo "This establishes performance before GRPO training..."
-python3 run_baseline.py --data-path "$VAL_DATA"
-echo "=== BASELINE COMPLETE ==="
+if python3 run_baseline.py --data-path "$VAL_DATA"; then
+    echo "=== BASELINE COMPLETE ==="
+else
+    echo "=== BASELINE FAILED - CONTINUING WITH TRAINING ==="
+fi
 echo ""
 
 # Launch training

@@ -11,7 +11,8 @@ import logging
 from pathlib import Path
 import pandas as pd
 import torch
-from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+from transformers import AutoProcessor
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
 from PIL import Image
 from tqdm import tqdm
 
@@ -27,7 +28,7 @@ def evaluate_baseline(data_path: str, model_path: str = "Qwen/Qwen2.5-VL-3B-Inst
     # Load model and processor
     device = "cuda" if torch.cuda.is_available() else "cpu"
     processor = AutoProcessor.from_pretrained(model_path)
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_path,
         torch_dtype=torch.float16 if device == "cuda" else torch.float32,
         device_map="auto"
