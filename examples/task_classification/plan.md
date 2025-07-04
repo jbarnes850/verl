@@ -146,28 +146,32 @@ Task Classification with VLM Judge - Implementation Scope
 
   4. Implementation Components
 
-  4.1 Fast Bootstrap Phase (Days 1-2)
+  4.1 Real Data Bootstrap Phase (Days 1-2)
 
-  VLM Judge Initialization:
-  - Setup Qwen2.5-VL-72B as judge model
-  - Create initial labeled dataset using judge
-  - Filter high-confidence samples for initial training
+  Real Image + BLIP + VLM Judge Pipeline:
+  - Load real images from Open-Qwen2VL-Data (Flickr dataset)
+  - Use BLIP for contextual image captioning
+  - Map captions to realistic work scenarios
+  - Setup Qwen2.5-VL-72B as judge for high-quality labeling
+  - Create 1000+ training samples with real visual complexity
 
-  Key Code: utils/vlm_judge.py
-  - Implement preference probability computation
-  - Add caching for repeated judgments
-  - Support batch processing for speed
+  Key Code: prepare_task_data.py
+  - Real image loading and processing
+  - BLIP integration for enhanced captions
+  - VLM judge labeling with Qwen2.5-VL-72B
+  - Curriculum learning on real data
 
   4.2 Student Model Training (Days 3-4)
 
   Binary Classification Training:
-  - Train Qwen2.5-VL-3B on high-confidence samples
-  - Use simplified GRPO without tools
-  - Focus on fast convergence
+  - Train Qwen2.5-VL-3B on real image dataset
+  - Use GRPO with group sampling (n=5) 
+  - Real visual complexity ensures proper generalization
+  - Focus on fast convergence with 1000+ diverse samples
 
   Key Code: task_classification_reward.py
-  - Simple binary reward function
-  - Integration points for judge verification
+  - Binary reward function for real image pairs
+  - VLM judge verification integration
   - Support for human feedback override
 
   4.3 Semi-Online Learning Pipeline (Days 5-7)
@@ -191,12 +195,13 @@ Task Classification with VLM Judge - Implementation Scope
 
   Accuracy Timeline:
   - Baseline (prompt engineering): 70-75%
-  - Day 2 (VLM judge bootstrap): 80-85%
-  - Day 4 (initial training): 88-90%
+  - Day 2 (Real image + BLIP + VLM judge): 80-85%
+  - Day 4 (GRPO training on real images): 88-90%
   - Day 7 (semi-online learning): 92-95%
-  - Week 2 (with human feedback): 95-97%
+  - Week 2 (with customer data): 95-97%
 
   Advantages Over Prompt Engineering:
+  - Real visual complexity enables proper generalization
   - 20-30% better accuracy on edge cases
   - 50% lower inference latency
   - No token limit constraints
