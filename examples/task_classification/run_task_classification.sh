@@ -131,13 +131,23 @@ python3 -m verl.trainer.main_ppo \
 echo "Training completed!"
 echo "Model saved to: $OUTPUT_DIR"
 
-# Run evaluation if script exists
-if [ -f "evaluate_classifier.py" ]; then
-    echo "Running evaluation..."
-    python3 evaluate_classifier.py --model-dir "$OUTPUT_DIR" --data-file "$VAL_DATA"
+# Run comprehensive evaluation
+echo ""
+echo "=== RUNNING COMPREHENSIVE EVALUATION ==="
+if [ -f "$DATA_DIR/baseline_results.json" ]; then
+    python3 evaluate_comprehensive.py \
+        --model-path "$OUTPUT_DIR/final_model" \
+        --data-path "$VAL_DATA" \
+        --baseline-results "$DATA_DIR/baseline_results.json" \
+        --output-dir "$OUTPUT_DIR/evaluation"
 else
-    echo "Evaluation script not found, skipping evaluation"
+    echo "Warning: No baseline results found, running without comparison"
+    python3 evaluate_comprehensive.py \
+        --model-path "$OUTPUT_DIR/final_model" \
+        --data-path "$VAL_DATA" \
+        --output-dir "$OUTPUT_DIR/evaluation"
 fi
+echo "=== EVALUATION COMPLETE ==="#
 
 echo "Task classification training pipeline completed!"
 echo "Check outputs in: $OUTPUT_DIR"
