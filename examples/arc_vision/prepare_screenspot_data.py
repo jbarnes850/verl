@@ -101,9 +101,12 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     
     # Save image to disk
     image_filename = f"{split}_{idx}.png"
-    image_path = os.path.join(image_dir, image_filename)
+    full_image_path = os.path.join(image_dir, image_filename)
     if image:
-        image.save(image_path)
+        image.save(full_image_path)
+    
+    # Use relative path for portability (relative to parquet file location)
+    image_path = os.path.join(f"{split}_images", image_filename)
     
     # Create reasoning-enhanced prompt
     enhanced_prompt = create_reasoning_prompt(instruction)
