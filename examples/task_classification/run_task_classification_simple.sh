@@ -11,15 +11,21 @@ export USE_OPTIMIZED_MODEL=0
 export CUDA_VISIBLE_DEVICES=0,1
 
 # Data paths
-DATA_DIR=${DATA_DIR:-"desktop_task_data_balanced"}
-TRAIN_DATA="$DATA_DIR/desktop_train.parquet"
-VAL_DATA="$DATA_DIR/desktop_val.parquet"
+DATA_DIR=${DATA_DIR:-"desktop_task_data_verl"}
+TRAIN_DATA="$DATA_DIR/verl_train.parquet"
+VAL_DATA="$DATA_DIR/verl_val.parquet"
 
-# Check if data exists
+# Check if VERL format data exists, if not convert it
 if [ ! -f "$TRAIN_DATA" ] || [ ! -f "$VAL_DATA" ]; then
-    echo "ERROR: Training data not found at $DATA_DIR"
-    echo "Please run: python balance_dataset.py --input-dir desktop_task_data_local --output-dir desktop_task_data_balanced"
-    exit 1
+    echo "Converting data to VERL format..."
+    python convert_to_verl_format.py \
+        --input-dir desktop_task_data_balanced \
+        --output-dir "$DATA_DIR"
+    
+    if [ ! -f "$TRAIN_DATA" ] || [ ! -f "$VAL_DATA" ]; then
+        echo "ERROR: Data conversion failed"
+        exit 1
+    fi
 fi
 
 # Create output directory
