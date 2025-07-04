@@ -585,6 +585,7 @@ def arc_vision_compute_reward(data_source: str,
     
     # Return detailed reward information
     # VERL's reward manager expects a dict with at least a 'score' key
+    # Note: All values must be numeric for validation metrics computation
     return {
         "score": float(final_reward),
         # Additional metrics for analysis
@@ -594,11 +595,16 @@ def arc_vision_compute_reward(data_source: str,
         "iou": float(iou),
         "confidence_before": float(confidence_before),
         "confidence_after": float(confidence_after),
-        "tool_invocations": tool_metrics["tool_invocations"],
-        "tools_used": tool_metrics["tools_used"],
-        "gate_penalties": gate_penalties,
-        "predicted_bbox": predicted_bbox,
-        "ground_truth": ground_truth
+        "tool_invocations": int(tool_metrics["tool_invocations"]),
+        # Convert non-numeric values to counts/flags for metrics
+        "num_tools_used": len(tool_metrics["tools_used"]),
+        "num_gate_penalties": len(gate_penalties),
+        "total_gate_penalty": float(r_gate),  # Sum of all penalties
+        # Keep these for logging but not in metrics
+        # "tools_used": tool_metrics["tools_used"],
+        # "gate_penalties": gate_penalties,
+        # "predicted_bbox": predicted_bbox,
+        # "ground_truth": ground_truth
     }
 
 
