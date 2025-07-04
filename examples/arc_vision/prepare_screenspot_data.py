@@ -24,7 +24,6 @@ import os
 from typing import Dict, List, Any
 
 import datasets
-import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
@@ -231,28 +230,29 @@ def main():
         
         print(f"Successfully processed {len(records)} samples")
         
-        # Convert to DataFrame and save as parquet
-        df = pd.DataFrame(records)
+        # Convert to HuggingFace Dataset and save as parquet (preserves list format)
+        from datasets import Dataset
+        dataset = Dataset.from_list(records)
         output_file = os.path.join(local_dir, f"{split}.parquet")
-        df.to_parquet(output_file)
+        dataset.to_parquet(output_file)
         print(f"Saved {split} data to: {output_file}")
         
         # Print sample statistics
         print(f"\n{split} statistics:")
-        print(f"  Total samples: {len(df)}")
+        print(f"  Total samples: {len(dataset)}")
         print(f"  Images saved to: {image_dir}")
         
-        # Get instruction length from extra_info
-        extra_infos = df['extra_info']
-        print(f"  Average instruction length: {extra_infos.apply(lambda x: len(x['original_instruction'])).mean():.1f} chars")
+        # Calculate statistics from the dataset
+        instructions = [r['extra_info']['original_instruction'] for r in records]
+        avg_instruction_len = sum(len(inst) for inst in instructions) / len(instructions)
+        print(f"  Average instruction length: {avg_instruction_len:.1f} chars")
         
         # Check bbox distribution
-        reward_models = df['reward_model']
-        bboxes = reward_models.apply(lambda x: x['ground_truth'])
-        bbox_areas = bboxes.apply(lambda b: (b[2] - b[0]) * (b[3] - b[1]))
-        print(f"  Average bbox area: {bbox_areas.mean():.3f}")
-        print(f"  Min bbox area: {bbox_areas.min():.3f}")
-        print(f"  Max bbox area: {bbox_areas.max():.3f}")
+        bboxes = [r['reward_model']['ground_truth'] for r in records]
+        bbox_areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in bboxes]
+        print(f"  Average bbox area: {sum(bbox_areas) / len(bbox_areas):.3f}")
+        print(f"  Min bbox area: {min(bbox_areas):.3f}")
+        print(f"  Max bbox area: {max(bbox_areas):.3f}")
     
     # Copy to HDFS if specified
     if args.hdfs_dir:
