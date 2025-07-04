@@ -1,6 +1,6 @@
 # Real-Time Task Classification with VLM Judge Supervision: A Production RLHF Case Study
 
-**TL;DR**: We demonstrate a production deployment of Group Relative Policy Optimization (GRPO) for binary screenshot classification, achieving 92-95% accuracy in distinguishing "on-task" vs "off-task" behavior. Our approach combines real image data from Open-Qwen2VL-Data, BLIP-enhanced captioning, and Qwen2.5-VL-72B judge supervision to train a lightweight 3B student model for real-time productivity monitoring.
+**TL;DR**: We demonstrate a production deployment of Group Relative Policy Optimization (GRPO) for binary screenshot classification, targeting 92%+ accuracy in distinguishing "on-task" vs "off-task" behavior. Our approach uses real desktop screenshots from ScreenSpot dataset with Qwen2.5-VL-72B judge supervision to train a lightweight 3B student model. Initial zero-shot baseline shows 52.50% accuracy, establishing clear room for improvement through GRPO training.
 
 ## Problem Statement
 
@@ -15,24 +15,27 @@ This represents a challenging multi-modal RL problem requiring visual understand
 
 ## Methodology
 
-### Data Pipeline: Real Images + VLM Judge Bootstrap
+### Data Pipeline: Desktop Screenshots + VLM Judge Labeling
 
-We developed a novel data preparation pipeline that addresses the synthetic-to-real gap common in screenshot classification:
+We developed a robust data preparation pipeline using actual desktop screenshots:
 
 ```
-Real Images → BLIP Captioning → Work Context Mapping → VLM Judge Labeling
+ScreenSpot Dataset → Task Assignment → VLM Judge Analysis → Label Generation → Dataset Balancing
 ```
 
-**Phase 1: Real Image Foundation**
-- Source: Open-Qwen2VL-Data (Flickr subset) for authentic visual complexity
-- Enhancement: BLIP-2 captioning for contextual understanding  
-- Mapping: Caption-to-task translation using predefined work scenarios
-- Scale: 1000+ diverse samples covering enterprise applications
+**Critical Learning**: Initial attempts with nature photos (Flickr) resulted in 100% off-task predictions due to domain mismatch. Switching to real desktop screenshots was essential.
+
+**Phase 1: Real Desktop Screenshots**
+- Source: ScreenSpot dataset (cross-platform GUI screenshots)
+- Content: Actual workplace applications (VS Code, Excel, browsers, etc.)
+- Task Assignment: 10 work scenarios matched to screenshot content
+- Scale: 200 balanced samples after addressing 83.5% on-task bias
 
 **Phase 2: VLM Judge Supervision**
 - Judge Model: Qwen2.5-VL-72B-Instruct via HuggingFace Inference API
-- Student Model: Qwen2.5-VL-3B-Instruct for production deployment
-- Verification: Hybrid reward combining VLM judge (50%), binary classification (30%), and visual verification (20%)
+- Analysis: Identifies applications and assesses task alignment
+- Quality: Successfully distinguishes productivity tools from entertainment
+- Example: Microsoft Visio → on-task, Arsenal store → off-task
 
 ### Training Architecture: GRPO with Semi-Online Learning
 
@@ -78,14 +81,12 @@ Our approach builds on several key advances in multi-modal RL:
 - **Framework**: VERL with custom task classification reward module
 
 ### Dataset Statistics
-```
-[PLACEHOLDER: Dataset composition table]
-- Training samples: 1,000+
-- Validation samples: 200+
-- Task categories: 15 work domains
-- Image resolution: 1024x1024
-- Caption diversity: X unique BLIP captions
-```
+- **Training samples**: 160 (balanced to 60% on-task, 40% off-task)
+- **Validation samples**: 40 (balanced distribution)
+- **Source**: ScreenSpot dataset (real desktop screenshots)
+- **Task categories**: 10 work scenarios (file management, coding, browsing, etc.)
+- **Image resolution**: Variable (native screenshot resolutions)
+- **Data preparation**: VLM-labeled with Qwen2.5-VL-72B judge
 
 ### Training Configuration
 ```yaml
@@ -110,11 +111,17 @@ reward_weights:
 
 ### Performance Metrics
 
-**[PLACEHOLDER: Performance comparison table]**
-| Method | Accuracy | Latency | Edge Cases |
-|--------|----------|---------|------------|
-| Prompt Engineering | 75% | 300ms | 60% |
-| Our Approach | 94% | 85ms | 89% |
+| Method | Accuracy | Latency | Notes |
+|--------|----------|---------|-------|
+| Gemini-2.5-Flash (baseline) | 70-75% | 300ms | Customer's current approach |
+| Qwen2.5-VL-3B Zero-shot | 52.50% | <100ms | Before GRPO training |
+| Qwen2.5-VL-3B + GRPO | TBD | <100ms | After training (in progress) |
+
+**Key Baseline Results**:
+- Zero-shot accuracy: 52.50% (21/40 correct predictions)
+- Dataset: Balanced desktop screenshots (60% on-task, 40% off-task)
+- Model: Qwen2.5-VL-3B-Instruct without fine-tuning
+- This establishes room for improvement through GRPO training
 
 ### Training Dynamics
 
@@ -124,27 +131,31 @@ reward_weights:
 **[PLACEHOLDER: Confidence distribution plots]**
 - Caption: Confidence score distributions comparing baseline vs trained model across task difficulty levels
 
-### Ablation Studies
+### Key Dataset Insights
 
-**[PLACEHOLDER: Ablation results table]**
-| Component | Accuracy Drop |
-|-----------|---------------|
-| w/o VLM Judge | -12% |
-| w/o Real Images | -18% |
-| w/o BLIP Enhancement | -7% |
-| w/o Semi-Online Learning | -5% |
+**Original Issue**: Initial approach used nature photos (Flickr) instead of desktop screenshots
+- Result: 100% off-task labels (catastrophic mismatch)
+- Lesson: Domain-specific data is critical for task classification
+
+**Current Dataset Composition**:
+| Data Source | Samples | On-task % | Description |
+|-------------|---------|-----------|-------------|
+| ScreenSpot | 200 | 83.5% | Real desktop screenshots |
+| After Balancing | 200 | 60% | Duplicated off-task samples |
+| Train Split | 160 | 60% | For GRPO training |
+| Val Split | 40 | 60% | For evaluation |
 
 ## Analysis and Discussion
 
 ### Key Findings
 
-1. **Real Image Necessity**: Synthetic screenshot generation failed to capture visual complexity, leading to poor generalization. Real images from Open-Qwen2VL-Data provided essential visual diversity.
+1. **Data Domain Criticality**: Initial use of nature photos (Flickr) led to 100% off-task predictions. Switching to ScreenSpot desktop screenshots was essential for meaningful training.
 
-2. **VLM Judge Quality**: Qwen2.5-VL-72B supervision significantly outperformed fixed confidence baselines, providing nuanced feedback crucial for edge case learning.
+2. **VLM Judge Effectiveness**: Qwen2.5-VL-72B successfully labeled desktop screenshots with nuanced understanding (e.g., Microsoft Visio → on-task, Arsenal store → off-task).
 
-3. **GRPO Effectiveness**: Group sampling reduced training variance by ~40% compared to standard PPO, enabling stable learning with limited data.
+3. **Baseline Performance**: Zero-shot Qwen2.5-VL-3B achieves only 52.50% accuracy, confirming the need for GRPO fine-tuning to reach customer's 92%+ target.
 
-4. **Semi-Online Adaptation**: Real-time feedback integration improved edge case performance by 30%, demonstrating the value of continuous learning.
+4. **Dataset Balance**: Original ScreenSpot data was 83.5% on-task. Balancing to 60/40 split ensures model learns both classes effectively.
 
 ### Production Considerations
 
