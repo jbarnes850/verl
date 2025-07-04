@@ -18,10 +18,10 @@ OUTPUT_DIR=${OUTPUT_DIR:-"outputs/arc_vision"}
 BASE_DIR=${BASE_DIR:-"/root/verl"}
 
 # Tool config path (absolute path for container)
-TOOL_CONFIG_PATH="examples/arc_vision/config/tool_config/arc_vision_tools.yaml"
+TOOL_CONFIG_PATH="$BASE_DIR/examples/arc_vision/config/tool_config/arc_vision_tools.yaml"
 
 # Custom reward function path (absolute path for container)
-REWARD_FUNCTION_PATH="examples/arc_vision/arc_vision_custom_reward.py"
+REWARD_FUNCTION_PATH="$BASE_DIR/examples/arc_vision/arc_vision_custom_reward.py"
 
 # Configuration path
 CONFIG_PATH="$BASE_DIR/examples/arc_vision/config"
