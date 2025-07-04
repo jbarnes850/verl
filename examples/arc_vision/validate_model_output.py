@@ -70,13 +70,26 @@ def main():
     # Test inference
     print("\n4. Testing model inference...")
     image = Image.open(sample['images'][0]['image'])
-    text = processor.apply_chat_template(
-        sample['prompt'], 
-        tokenize=False, 
-        add_generation_prompt=True
-    )
+    
+    # For Qwen2.5-VL, we need to format the conversation properly
+    # The model expects the image token to be part of the conversation
+    messages = sample['prompt']
+    
+    # Convert the text-only format to Qwen2.5-VL's expected format
+    conversation = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": messages[0]["content"].replace("<image>\n", "")}
+            ]
+        }
+    ]
+    
+    # Apply chat template and process
+    text = processor.apply_chat_template(conversation, tokenize=False, add_generation_prompt=True)
     inputs = processor(
-        text=[text], 
+        text=text, 
         images=[image], 
         return_tensors='pt'
     ).to('cuda:0')
