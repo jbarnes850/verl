@@ -12,8 +12,7 @@ This script tests that:
 import re
 import torch
 from datasets import load_dataset
-from transformers import AutoProcessor
-from verl.utils.model import load_vlm_model_and_tokenizer
+from transformers import AutoProcessor, AutoModelForCausalLM
 from PIL import Image
 
 
@@ -54,13 +53,16 @@ def main():
     # Load model and processor
     print("\n3. Loading Qwen2.5-VL-3B model...")
     model_path = 'Qwen/Qwen2.5-VL-3B-Instruct'
-    model, tokenizer = load_vlm_model_and_tokenizer(
-        model_path, 
-        enable_gradient_checkpointing=True,
+    
+    # Load the model using AutoModelForCausalLM
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
         trust_remote_code=True,
-        dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16,
         device_map='cuda:0'
     )
+    
+    # Load the processor
     processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
     print("✓ Model loaded successfully")
     
