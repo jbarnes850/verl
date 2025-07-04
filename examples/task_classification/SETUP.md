@@ -4,7 +4,7 @@
 
 ### 1. Environment Setup
 ```bash
-# Set HuggingFace token for VLM judge
+# Set HuggingFace token for VLM judge (REQUIRED)
 export HF_TOKEN=your_hf_token_here
 
 # Install dependencies (if not already done)

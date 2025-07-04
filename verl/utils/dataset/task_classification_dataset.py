@@ -23,13 +23,13 @@ import torch
 from PIL import Image
 import pandas as pd
 
-from verl.utils.dataset.rl_dataset import RLHFDataset
+from torch.utils.data import Dataset
 from verl.utils.dataset.vision_utils import process_image
 
 logger = logging.getLogger(__name__)
 
 
-class TaskClassificationDataset(RLHFDataset):
+class TaskClassificationDataset(Dataset):
     """Dataset for binary task classification with screenshots.
     
     Handles:
@@ -74,22 +74,29 @@ class TaskClassificationDataset(RLHFDataset):
                 "cache_dir": "~/.cache/verl/task_classification"
             })
         
-        # RLHFDataset expects data_files parameter
-        super().__init__(
-            data_files=data_path,
-            tokenizer=tokenizer,
-            config=config,
-            processor=processor
-        )
+        # Store max lengths from config
+        self.max_prompt_length = config.get("max_prompt_length", max_prompt_length)
+        self.max_response_length = config.get("max_response_length", max_response_length)
         
+        # Store data path for loading
+        self.data_path = data_path
+        
+        # Store attributes
         self.processor = processor
         self.image_key = image_key
         self.feedback_buffer_size = feedback_buffer_size
         self.synthetic_variants_per_feedback = synthetic_variants_per_feedback
+        self.tokenizer = tokenizer
+        self.config = config
+        
+        # Set dataset attributes
+        self.cache_dir = config.get("cache_dir", "~/.cache/verl/task_classification")
+        self.prompt_key = config.get("prompt_key", "prompt")
         
         # Feedback buffer for continuous learning
         self.feedback_buffer = []
         self.synthetic_data = []
+        self.data = []
         
         # Load dataset
         self._load_data()
@@ -162,17 +169,17 @@ Classification:"""
             if screenshot_path and os.path.exists(screenshot_path):
                 image = Image.open(screenshot_path).convert("RGB")
                 # Use vision_utils for consistent processing
-                processed_image = process_image(image, self.processor)
+                processed_image = process_image(image)
             else:
                 # Create dummy image if screenshot not found
                 image = Image.new("RGB", (224, 224), color="white")
-                processed_image = process_image(image, self.processor)
+                processed_image = process_image(image)
                 logger.warning(f"Screenshot not found: {screenshot_path}")
         except Exception as e:
             logger.error(f"Failed to process image {screenshot_path}: {e}")
             # Create dummy image
             image = Image.new("RGB", (224, 224), color="white")
-            processed_image = process_image(image, self.processor)
+            processed_image = process_image(image)
         
         # Tokenize prompt
         prompt_tokens = self.tokenizer(
@@ -378,3 +385,44 @@ Classification:"""
             "label_distribution": label_counts,
             "buffer_utilization": len(self.feedback_buffer) / self.feedback_buffer_size
         }
+
+
+def collate_fn(batch):
+    """Collate function for TaskClassificationDataset compatible with VERL."""
+    # Separate different components
+    input_ids = [item['input_ids'] for item in batch]
+    attention_mask = [item['attention_mask'] for item in batch]
+    response_input_ids = [item['response_input_ids'] for item in batch]
+    response_attention_mask = [item['response_attention_mask'] for item in batch]
+    images = [item.get('images', None) for item in batch]
+    
+    # Pad sequences
+    from torch.nn.utils.rnn import pad_sequence
+    
+    input_ids = pad_sequence(input_ids, batch_first=True, padding_value=0)
+    attention_mask = pad_sequence(attention_mask, batch_first=True, padding_value=0)
+    response_input_ids = pad_sequence(response_input_ids, batch_first=True, padding_value=0)
+    response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
+    
+    # Stack images if present
+    if images[0] is not None:
+        images = torch.stack(images)
+    else:
+        images = None
+    
+    # Create batch dict
+    batch_dict = {
+        'input_ids': input_ids,
+        'attention_mask': attention_mask,
+        'response_input_ids': response_input_ids,
+        'response_attention_mask': response_attention_mask,
+        'prompts': [item['prompt'] for item in batch],
+        'responses': [item['response'] for item in batch],
+        'ground_truths': [item['ground_truth'] for item in batch],
+        'metadata': [item.get('metadata', {}) for item in batch]
+    }
+    
+    if images is not None:
+        batch_dict['images'] = images
+    
+    return batch_dict

@@ -105,6 +105,10 @@ def default_compute_score(
         from . import arc_vision_reward
 
         res = arc_vision_reward.compute_score(solution_str, ground_truth)
+    elif data_source == "task_classification":
+        from . import task_classification
+
+        res = task_classification.compute_score(solution_str, ground_truth)
 
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")
@@ -138,4 +142,7 @@ def _default_compute_score(
 # Import Arc Vision reward model
 from .arc_vision_reward import ArcVisionRewardScore, compute_score as arc_vision_compute_score
 
-__all__ = ["default_compute_score", "ArcVisionRewardScore", "arc_vision_compute_score"]
+# Import Task Classification reward model
+from .task_classification import TaskClassificationRewardScore, compute_score as task_classification_compute_score
+
+__all__ = ["default_compute_score", "ArcVisionRewardScore", "arc_vision_compute_score", "TaskClassificationRewardScore", "task_classification_compute_score"]
