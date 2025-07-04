@@ -43,6 +43,14 @@ echo "Validation data: $VAL_DATA"
 echo "Output directory: $OUTPUT_DIR"
 echo "Engine: $ENGINE"
 
+# Run baseline evaluation first
+echo ""
+echo "=== RUNNING ZERO-SHOT BASELINE ==="
+echo "This establishes performance before GRPO training..."
+python3 run_baseline.py --data-path "$VAL_DATA"
+echo "=== BASELINE COMPLETE ==="
+echo ""
+
 # Launch training
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
