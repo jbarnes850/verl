@@ -71,14 +71,16 @@ def main():
     print("\n4. Testing model inference...")
     image = Image.open(sample['images'][0]['image'])
     
-    # The data format from prepare_screenspot_data.py uses messages with <image> placeholder
-    # Qwen2.5-VL expects this format during training, so we'll use it as-is
-    messages = sample['prompt']
+    # The data uses <image> placeholder but Qwen2.5-VL expects <|image_pad|>
+    messages = sample['prompt'].copy()
     
-    # Apply chat template directly - the processor will handle the <image> token
+    # Replace <image> with the actual image token that Qwen2.5-VL expects
+    messages[0]["content"] = messages[0]["content"].replace("<image>", "<|image_pad|>")
+    
+    # Apply chat template
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     
-    # Process with the image - processor will replace <image> token with actual image embeddings
+    # Process with the image
     inputs = processor(
         text=text, 
         images=[image], 
