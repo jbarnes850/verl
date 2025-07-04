@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 import pandas as pd
 
-from utils.vlm_judge import VLMJudge
+# VLMJudge not needed - using HF Inference API only
 from huggingface_hub import InferenceClient
 
 # Setup logging
@@ -35,26 +35,22 @@ class TaskDataPreparer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
-        # Initialize HuggingFace Inference Client for VLM judge
-        try:
-            hf_token = os.getenv("HF_TOKEN")
-            if hf_token:
-                self.hf_client = InferenceClient(
-                    provider="auto",
-                    api_key=hf_token,
-                )
-                logger.info(f"Initialized HuggingFace Inference Client for {vlm_judge_model}")
-            else:
-                logger.warning("HF_TOKEN not found - using local VLM judge")
-                self.hf_client = None
-                
-            # Fallback to local VLM judge
-            self.vlm_judge = VLMJudge(model_path=vlm_judge_model)
-        except Exception as e:
-            logger.warning(f"Failed to initialize inference clients: {e}")
-            self.hf_client = None
-            self.vlm_judge = None
+        # Initialize HuggingFace Inference Client for VLM judge - NO LOCAL FALLBACK
+        hf_token = os.getenv("HF_TOKEN")
+        if not hf_token:
+            raise ValueError("HF_TOKEN environment variable is required for VLM judge. Please set: export HF_TOKEN=your_token")
             
+        try:
+            self.hf_client = InferenceClient(
+                provider="auto",
+                api_key=hf_token,
+            )
+            logger.info(f"Initialized HuggingFace Inference Client for {vlm_judge_model}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize HuggingFace Inference Client: {e}")
+            
+        # NO local VLM judge - only use HF Inference API
+        self.vlm_judge = None
         self.vlm_judge_model = vlm_judge_model
         
         # Task descriptions for synthetic data generation
@@ -402,18 +398,9 @@ class TaskDataPreparer:
                     image_data.save(local_image_path, "JPEG", quality=90)
                     
                     # Step 6: Use VLM judge for high-quality labeling (following plan.md)
-                    if self.hf_client:
-                        # Use HuggingFace Inference API for Qwen2.5-VL-72B (remote GPU not needed)
-                        label, confidence = self._label_with_hf_inference(str(local_image_path), final_task)
-                        logger.debug(f"VLM judge API: {final_task} -> {label} (conf: {confidence:.3f})")
-                    elif self.vlm_judge:
-                        # Fallback to local VLM judge (requires massive GPU memory)
-                        label, confidence = self.vlm_judge.judge_classification(str(local_image_path), final_task)
-                        logger.debug(f"Local VLM judge: {final_task} -> {label} (conf: {confidence:.3f})")
-                    else:
-                        # Final fallback
-                        logger.warning("No VLM judge available, using heuristic")
-                        label, confidence = self._heuristic_label(final_task)
+                    # ONLY use HuggingFace Inference API - no local 72B model
+                    label, confidence = self._label_with_hf_inference(str(local_image_path), final_task)
+                    logger.debug(f"VLM judge API: {final_task} -> {label} (conf: {confidence:.3f})")
                     
                     # Create training sample following VERL format (no PIL objects for parquet)
                     sample = {
