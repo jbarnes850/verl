@@ -96,17 +96,26 @@ class DesktopScreenshotPreparer:
         logger.info("Loading ScreenSpot dataset...")
         
         try:
-            # Load the dataset
-            dataset = load_dataset("rootsautomation/ScreenSpot", split="train")
+            # Load the dataset - ScreenSpot only has 'test' split
+            dataset = load_dataset("rootsautomation/ScreenSpot", split="test")
             
             samples = []
-            for item in dataset:
-                # Filter for desktop platforms only
-                if item.get('platform') in ['Windows', 'macOS', 'Web']:
+            for idx, item in enumerate(dataset):
+                # Log progress
+                if idx % 100 == 0:
+                    logger.info(f"Processing ScreenSpot item {idx}...")
+                
+                # Debug: log platform to see what's available
+                platform = item.get('platform', 'unknown')
+                if idx < 5:  # Log first few platforms
+                    logger.info(f"Sample {idx} platform: {platform}")
+                
+                # More flexible filtering - include all non-mobile platforms
+                if platform not in ['iOS', 'Android', 'iPad']:
                     samples.append({
                         'image': item['image'],
                         'instruction': item.get('instruction', ''),
-                        'platform': item['platform']
+                        'platform': platform
                     })
             
             logger.info(f"Loaded {len(samples)} desktop screenshots from ScreenSpot")
@@ -126,13 +135,31 @@ class DesktopScreenshotPreparer:
             
             samples = []
             count = 0
-            for item in dataset:
+            logger.info("Starting to stream OS-Atlas samples...")
+            
+            for idx, item in enumerate(dataset):
+                # Log progress every 10 items
+                if idx % 10 == 0:
+                    logger.info(f"Processed {idx} OS-Atlas items, collected {count} samples...")
+                
                 if count >= 500:  # Limit samples for demo
                     break
+                
+                # Debug first few items
+                if idx < 3:
+                    logger.info(f"OS-Atlas item {idx} keys: {list(item.keys())}")
+                    logger.info(f"Platform: {item.get('platform', 'unknown')}")
                     
-                if 'screenshot' in item and item.get('platform') in ['Windows', 'Linux', 'macOS']:
+                # Check different possible image keys
+                image_key = None
+                for key in ['screenshot', 'image', 'img']:
+                    if key in item:
+                        image_key = key
+                        break
+                
+                if image_key and item.get('platform') in ['Windows', 'Linux', 'macOS']:
                     samples.append({
-                        'image': item['screenshot'],
+                        'image': item[image_key],
                         'platform': item['platform'],
                         'elements': item.get('elements', [])
                     })
@@ -271,6 +298,7 @@ Answer with only "on-task" or "off-task"."""
         # Process samples
         labeled_data = []
         
+        logger.info(f"Starting to process {len(all_samples)} screenshots...")
         for idx, sample in enumerate(tqdm(all_samples, desc="Processing screenshots")):
             try:
                 # Get image
