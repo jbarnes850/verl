@@ -44,6 +44,13 @@ def convert_to_verl_format(input_dir: str, output_dir: str):
             # Process image path - use absolute path
             image_path = str(Path(row['screenshot']).absolute())
             
+            # For compatibility with different qwen_vl_utils versions
+            # Try the format that works with the remote GPU's version
+            image_dict = {
+                "image": image_path,  # This key works in newer versions
+                "image_url": image_path  # This key works in older versions
+            }
+            
             # Create VERL format entry
             verl_entry = {
                 'data_source': 'task_classification',  # Add data source
@@ -52,7 +59,7 @@ def convert_to_verl_format(input_dir: str, output_dir: str):
                 'task_description': row['task_description'],
                 'screenshot': image_path,
                 'ground_truth': response,  # For reward calculation
-                'images': [{"image": image_path}]  # Use dict with "image" key
+                'images': [image_dict]  # Include both keys for compatibility
             }
             
             # Add analysis if available
