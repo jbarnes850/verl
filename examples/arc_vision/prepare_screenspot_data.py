@@ -20,7 +20,6 @@ to VERL-compatible parquet format.
 """
 
 import argparse
-import json
 import os
 from typing import Dict, List, Any
 
@@ -111,7 +110,7 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     # Create VERL-compatible record
     record = {
         "data_source": "arc_vision",  # Use consistent data source name
-        "prompt": json.dumps(messages),  # Store as JSON string to avoid numpy array conversion
+        "prompt": messages,  # Store as list directly, like geo3k example
         "images": [{"image": image_path}],  # Use dict format expected by Qwen2.5-VL
         "ability": "ui_detection",
         "ground_truth": bbox_normalized,  # Add at top level for reward function
