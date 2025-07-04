@@ -5,6 +5,9 @@ import argparse
 import pandas as pd
 from pathlib import Path
 import json
+from PIL import Image
+import base64
+from io import BytesIO
 
 def convert_to_verl_format(input_dir: str, output_dir: str):
     """Convert our data format to VERL's expected format with 'prompt' key."""
@@ -12,6 +15,10 @@ def convert_to_verl_format(input_dir: str, output_dir: str):
     input_path = Path(input_dir)
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
+    
+    # Create images subdirectory
+    images_dir = output_path / "images"
+    images_dir.mkdir(exist_ok=True)
     
     for split in ['train', 'val']:
         # Load our format
@@ -23,25 +30,29 @@ def convert_to_verl_format(input_dir: str, output_dir: str):
         # Convert to VERL format
         verl_data = []
         for idx, row in df.iterrows():
-            # Create prompt in chat format
+            # Create prompt in chat format with image placeholder
             prompt = [
                 {
                     "role": "user",
-                    "content": f"Is this screenshot showing someone on-task for: {row['task_description']}? Answer with only 'on-task' or 'off-task'."
+                    "content": f"<image>Is this screenshot showing someone on-task for: {row['task_description']}? Answer with only 'on-task' or 'off-task'."
                 }
             ]
             
             # The response is the label
             response = row['label']
             
+            # Process image path - use absolute path
+            image_path = str(Path(row['screenshot']).absolute())
+            
             # Create VERL format entry
             verl_entry = {
-                'prompt': prompt,
+                'data_source': 'task_classification',  # Add data source
+                'prompt': prompt,  # Store as list directly, not JSON string
                 'response': response,
                 'task_description': row['task_description'],
-                'screenshot': row['screenshot'],
+                'screenshot': image_path,
                 'ground_truth': response,  # For reward calculation
-                'images': [row['screenshot']]  # Image paths
+                'images': [{"image": image_path}]  # Use dict with "image" key
             }
             
             # Add analysis if available
