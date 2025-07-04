@@ -73,7 +73,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation=error \
     data.reward_fn_key=ground_truth \
-    data.custom_cls.path=verl.utils.dataset.task_classification_dataset \
+    data.custom_cls.path=verl/utils/dataset/task_classification_dataset.py \
     data.custom_cls.name=TaskClassificationDataset \
     \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-VL-3B-Instruct \
