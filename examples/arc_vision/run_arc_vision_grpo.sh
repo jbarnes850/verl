@@ -43,6 +43,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_batch_size=32 \
     data.max_prompt_length=8192 \
     data.max_response_length=512 \
+    data.return_raw_chat=True \
     data.image_key=images \
     data.filter_overlong_prompts=True \
     data.truncation=error \
