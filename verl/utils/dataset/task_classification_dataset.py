@@ -23,13 +23,13 @@ import torch
 from PIL import Image
 import pandas as pd
 
-from verl.utils.dataset.rl_dataset import RLDataset
+from verl.utils.dataset.rl_dataset import RLHFDataset
 from verl.utils.dataset.vision_utils import process_image
 
 logger = logging.getLogger(__name__)
 
 
-class TaskClassificationDataset(RLDataset):
+class TaskClassificationDataset(RLHFDataset):
     """Dataset for binary task classification with screenshots.
     
     Handles:
@@ -43,6 +43,7 @@ class TaskClassificationDataset(RLDataset):
                  data_path: str,
                  tokenizer,
                  processor,
+                 config=None,
                  max_prompt_length: int = 256,
                  max_response_length: int = 16,
                  image_key: str = "images",
@@ -54,17 +55,31 @@ class TaskClassificationDataset(RLDataset):
             data_path: Path to dataset file (parquet, jsonl, or json)
             tokenizer: Model tokenizer
             processor: Vision processor
+            config: Dataset configuration (DictConfig)
             max_prompt_length: Maximum prompt tokens
             max_response_length: Maximum response tokens  
             image_key: Key for image data in dataset
             feedback_buffer_size: Size of feedback buffer
             synthetic_variants_per_feedback: Number of synthetic variants per feedback
         """
+        from omegaconf import DictConfig
+        
+        # Create config if not provided
+        if config is None:
+            config = DictConfig({
+                "max_prompt_length": max_prompt_length,
+                "max_response_length": max_response_length,
+                "image_key": image_key,
+                "prompt_key": "prompt",
+                "cache_dir": "~/.cache/verl/task_classification"
+            })
+        
+        # RLHFDataset expects data_files parameter
         super().__init__(
-            data_path=data_path,
+            data_files=data_path,
             tokenizer=tokenizer,
-            max_prompt_length=max_prompt_length,
-            max_response_length=max_response_length
+            config=config,
+            processor=processor
         )
         
         self.processor = processor
