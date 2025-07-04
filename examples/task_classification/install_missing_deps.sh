@@ -9,6 +9,9 @@ pip install torchvision
 # Install matplotlib (required for evaluation plots)
 pip install matplotlib
 
+# Install msgspec (required for VERL training)
+pip install msgspec
+
 # Install other commonly missing dependencies
 pip install seaborn plotly
 

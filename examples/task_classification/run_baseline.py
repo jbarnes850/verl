@@ -81,7 +81,6 @@ Answer with ONLY "on-task" or "off-task":"""
                 outputs = model.generate(
                     **inputs,
                     max_new_tokens=10,
-                    temperature=0.1,
                     do_sample=False
                 )
             
