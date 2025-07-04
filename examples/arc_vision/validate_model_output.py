@@ -12,7 +12,8 @@ This script tests that:
 import re
 import torch
 from datasets import load_dataset
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import AutoProcessor
+from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
 from PIL import Image
 
 
@@ -54,8 +55,8 @@ def main():
     print("\n3. Loading Qwen2.5-VL-3B model...")
     model_path = 'Qwen/Qwen2.5-VL-3B-Instruct'
     
-    # Load the model using AutoModelForCausalLM
-    model = AutoModelForCausalLM.from_pretrained(
+    # Load the model using Qwen2_5_VLForConditionalGeneration
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_path,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
