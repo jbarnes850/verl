@@ -246,9 +246,31 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
+        # Check if model is multimodal and get attention implementation
+        # First check if it's explicitly set in the config
+        attn_implementation = self.config.model.get("attn_implementation", None)
+        if attn_implementation is None:
+            # Also check override_config
+            attn_implementation = override_model_config.get("attn_implementation", None)
+        
+        if attn_implementation is None:
+            # Auto-detect attention implementation based on model type
+            temp_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+            model_type = getattr(temp_config, "model_type", "")
+            
+            # Use eager/sdpa for multimodal models to avoid Triton compilation issues
+            if model_type in ["qwen2_vl", "qwen2_5_vl", "kimi_vl"] or "vl" in model_type.lower():
+                attn_implementation = "sdpa"  # Use PyTorch's SDPA which is more compatible
+                if self.rank == 0:
+                    logger.info(f"Auto-detected multimodal model {model_type}, using {attn_implementation} attention to avoid Triton compilation issues")
+            else:
+                attn_implementation = "flash_attention_2"
+                if self.rank == 0:
+                    logger.info(f"Using {attn_implementation} attention for model {model_type}")
+
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(
-            local_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+            local_path, trust_remote_code=trust_remote_code, attn_implementation=attn_implementation
         )
 
         # patch for kimi-vl

@@ -5,8 +5,8 @@
 set -ex
 
 # Data paths
-TRAIN_DATA=${TRAIN_DATA:-"/root/data/arc_vision/screenspot/train.parquet"}
-VAL_DATA=${VAL_DATA:-"/root/data/arc_vision/screenspot/validation.parquet"}
+TRAIN_DATA=${TRAIN_DATA:-"/home/user/data/arc_vision/screenspot/train.parquet"}
+VAL_DATA=${VAL_DATA:-"/home/user/data/arc_vision/screenspot/validation.parquet"}
 
 # Model paths
 MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen2.5-VL-3B-Instruct"}
@@ -15,7 +15,7 @@ MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen2.5-VL-3B-Instruct"}
 OUTPUT_DIR=${OUTPUT_DIR:-"outputs/arc_vision"}
 
 # Base directory
-BASE_DIR=${BASE_DIR:-"/root/verl"}
+BASE_DIR=${BASE_DIR:-"/home/user/verl"}
 
 # Tool config path (absolute path for container)
 TOOL_CONFIG_PATH="$BASE_DIR/examples/arc_vision/config/tool_config/arc_vision_tools.yaml"
