@@ -35,43 +35,50 @@ from verl.utils.hdfs_io import copy, makedirs
 
 
 def create_reasoning_prompt(instruction: str) -> str:
-    """Create a reasoning-enhanced prompt for UI detection.
+    """Create an optimized prompt for UI detection that works with small models.
     
-    This prompt encourages the model to think about whether it needs tools
-    before attempting detection.
-    
-    Note: Uses the vision tokens that Qwen2.5-VL expects for image placeholder.
-    The actual image embedding will be handled by the model's processor.
+    Key changes based on research:
+    1. Removes explicit confidence scores (models hallucinate these)
+    2. Uses decision-based approach (tool or no tool)
+    3. Maintains compatibility with reward function
+    4. Leverages model's training on reasoning and tool usage
     """
     # For Qwen2.5-VL, we use <image> in the prompt text
-    # The processor will convert this to the appropriate vision tokens
     prompt = f"""<image>
 {instruction}
 
-First, analyze the image and describe what you observe about the target element:
+Step 1: Analyze the target element
 <reasoning>
-- Is the element clearly visible or partially obscured?
-- Is it small, blurry, or low contrast?
-- What challenges do you face in locating it?
-- Do you need to use tools to see it better?
+Examine these specific factors:
+- Size: Is the element smaller than 5% of screen area?
+- Visibility: Can you clearly see all edges and boundaries?
+- Contrast: Is it easily distinguishable from the background?
+- Occlusion: Is any part hidden or overlapped?
 </reasoning>
 
-Then provide your confidence level and the bounding box coordinates:
+Step 2: Decide your approach based on the analysis above
 
-<confidence>0.X</confidence> (your confidence from 0.0 to 1.0)
+IF the element is CLEAR (all edges visible, good contrast, >5% screen area):
+→ Provide direct detection:
 <bbox>[x1, y1, x2, y2]</bbox>
 
-IMPORTANT: 
-- Confidence: 0.0 = no confidence, 1.0 = complete certainty
-- If confidence < 0.7, you should use tools before providing final answer
-- Coordinates must be normalized (values between 0 and 1)
-- x1, y1 = top-left corner; x2, y2 = bottom-right corner
-- Example: <confidence>0.85</confidence> <bbox>[0.1, 0.2, 0.3, 0.4]</bbox>
+IF the element is UNCLEAR (small, blurry, partially hidden, or low contrast):
+→ Use tools FIRST, then detect:
+<use_tool>zoom_ui_element</use_tool> - for small elements
+<use_tool>inspect_element</use_tool> - for unclear boundaries
+<use_tool>wait_for_ui</use_tool> - if elements are still loading
 
-If you need to use tools (when confidence < 0.7), you can call:
-- zoom_ui_element: To zoom into a region for better visibility
-- wait_for_ui: To wait for elements to load
-- inspect_element: To get additional information about UI structure"""
+CRITICAL RULES:
+- Coordinates must be normalized (0.0 to 1.0)
+- Format: [x1, y1, x2, y2] where x1<x2 and y1<y2
+- x1,y1 = top-left; x2,y2 = bottom-right
+- Example: <bbox>[0.142, 0.058, 0.384, 0.126]</bbox>
+
+Decision threshold: If ANY of these are true, use tools:
+- Element width or height < 0.05 (5% of screen)
+- Cannot see all four edges clearly
+- Low contrast with background
+- Overlapped by other elements"""
     
     return prompt
 
@@ -194,10 +201,11 @@ def main():
         total_samples = len(test_dataset)
         print(f"Total samples to split: {total_samples}")
         
-        # Calculate split sizes (60/20/20)
-        train_size = int(0.6 * total_samples)
-        val_size = int(0.2 * total_samples)
-        test_size = total_samples - train_size - val_size
+        # Calculate split sizes - optimize for training data
+        # Original would be 60/20/20, but we cap validation at 60
+        test_size = int(0.2 * total_samples)  # Keep test at 20%
+        val_size = min(60, int(0.2 * total_samples))  # Cap validation at 60 samples for efficiency
+        train_size = total_samples - test_size - val_size  # Rest goes to training
         
         print(f"Split sizes - Train: {train_size}, Validation: {val_size}, Test: {test_size}")
         

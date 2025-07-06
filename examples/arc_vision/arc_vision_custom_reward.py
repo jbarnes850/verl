@@ -471,51 +471,69 @@ def arc_vision_compute_reward(data_source: str,
         r_task = 0.0
     
     # ==============================================================================
-    # 2. Extract Tool Usage and Confidence Information
+    # 2. Extract Tool Usage and Objective Task Properties
     # ==============================================================================
     tool_metrics = extract_tool_usage_as_confidence_proxy(solution_str)
-    confidence_before, confidence_after = compute_effective_confidence(solution_str)
+    # REMOVED confidence extraction - always returns artificial values
+    # Instead, calculate objective difficulty from ground truth
+    bbox_area = (ground_truth[2] - ground_truth[0]) * (ground_truth[3] - ground_truth[1])
+    is_small_object = bbox_area < 0.05  # Less than 5% of screen
+    is_edge_object = (ground_truth[0] < 0.1 or ground_truth[1] < 0.1 or 
+                      ground_truth[2] > 0.9 or ground_truth[3] > 0.9)
     
     # ==============================================================================
-    # 3. R_tool: Tool Effectiveness Based on Confidence Gain
+    # 3. R_tool: Tool Effectiveness Based on Task Difficulty and Success
     # ==============================================================================
     if tool_metrics["tool_invocations"] > 0:
-        # Calculate confidence gain from tool use
-        confidence_gain = confidence_after - confidence_before
-        
-        # R_tool = confidence_gain * IoU (tool effectiveness tied to task success)
-        r_tool = max(0.0, confidence_gain * iou)
+        # CHANGED: Reward tools based on objective difficulty, not fake confidence
+        # Research shows: small objects genuinely need tools, large objects don't
+        if is_small_object:
+            # Tools are necessary for small objects - strong reward
+            r_tool = 0.4 * iou  # High multiplier for appropriate tool use
+        elif is_edge_object:
+            # Tools helpful for edge objects - moderate reward  
+            r_tool = 0.2 * iou
+        else:
+            # Tools less necessary for large, centered objects - small reward
+            r_tool = 0.1 * iou  # Still some reward if it helped (high IoU)
         
         # Cap maximum tool reward
-        r_tool = min(r_tool, 1.0)
+        r_tool = min(r_tool, 0.4)
     else:
-        # No tools used, no tool reward
-        r_tool = 0.0
+        # No tools used - small reward if performed well without tools
+        if not is_small_object and iou > 0.7:
+            r_tool = 0.1  # Reward efficiency on easy objects
+        else:
+            r_tool = 0.0
     
     # ==============================================================================
-    # 4. R_gate: Penalties for Tool Misuse
+    # 4. R_gate: Penalties for Tool Misuse Based on Objective Criteria
     # ==============================================================================
     gate_penalties = []
     
-    # Penalty 1: Unnecessary tool use (high confidence but used tools)
-    if confidence_before >= confidence_threshold and tool_metrics["tool_invocations"] > 0:
-        penalty = tool_penalties["unnecessary_tool"]
-        gate_penalties.append(("unnecessary_tool", penalty))
-    
-    # Penalty 2: Missed opportunity (low confidence but no tools)
-    if confidence_before < confidence_threshold and tool_metrics["tool_invocations"] == 0:
+    # Penalty 1: Missed tools on genuinely hard objects
+    # CHANGED: Use objective difficulty instead of fake confidence
+    if is_small_object and tool_metrics["tool_invocations"] == 0 and iou < 0.5:
+        # Small object, no tools, poor performance = bad decision
         penalty = tool_penalties["missed_opportunity"]
-        gate_penalties.append(("missed_opportunity", penalty))
+        gate_penalties.append(("missed_hard_object", penalty))
     
-    # Penalty 3: Ineffective tool use (tool used but no confidence gain)
-    if tool_metrics["tool_invocations"] > 0:
-        confidence_gain = confidence_after - confidence_before
-        if confidence_gain < 0.05:  # Less than 5% confidence gain
-            penalty = tool_penalties["ineffective_tool"]
-            gate_penalties.append(("ineffective_tool", penalty))
+    # Penalty 2: Excessive tool use on easy objects  
+    # CHANGED: Penalize based on object size/difficulty, not confidence
+    if not is_small_object and not is_edge_object and tool_metrics["tool_invocations"] > 1:
+        # Large centered object but multiple tools = inefficient
+        penalty = tool_penalties["unnecessary_tool"] * 0.5  # Softer penalty
+        gate_penalties.append(("excessive_easy_object", penalty))
+    
+    # Penalty 3: Wrong tool selection
+    # NEW: Penalize using wrong tool for the situation
+    if is_small_object and "wait" in tool_metrics["tools_used"] and "zoom" not in tool_metrics["tools_used"]:
+        # Small object needs zoom, not wait
+        penalty = -0.05
+        gate_penalties.append(("wrong_tool_choice", penalty))
     
     # Penalty 4: Excessive tool use (more than 2 tools)
-    # Note: max_assistant_turns=2 in our config, so this triggers for >2 tools
+    # KEPT: This is still valid - too many tools is inefficient
     if tool_metrics["tool_invocations"] > 2:
         penalty = tool_penalties["excessive_tools"]
         gate_penalties.append(("excessive_tools", penalty))
@@ -549,14 +567,9 @@ def arc_vision_compute_reward(data_source: str,
             log_file=log_files["reasoning_traces"]
         )
         
-        # 2. Track confidence calibration - monitors prediction accuracy
-        track_confidence_calibration(
-            predicted_confidence=confidence_before,
-            actual_iou=iou,
-            tool_used=tool_metrics["tool_invocations"] > 0,
-            response_str=solution_str,
-            log_file=log_files["confidence_calibration"]
-        )
+        # 2. REMOVED confidence calibration tracking
+        # Since model doesn't output real confidence, tracking fake confidence
+        # creates misleading logs. Focus on actual behavior instead.
         
         # 3. Monitor tool patterns - analyzes tool effectiveness
         monitor_tool_patterns(
@@ -580,7 +593,7 @@ def arc_vision_compute_reward(data_source: str,
     
     # Log reward statistics for debugging
     logger.info(f"Arc Vision reward breakdown - Task: {r_task:.3f}, Tool: {r_tool:.3f}, Gate: {r_gate:.3f}")
-    logger.info(f"Confidence: {confidence_before:.3f} -> {confidence_after:.3f}, Tools used: {tool_metrics['tool_invocations']}")
+    logger.info(f"Object: {'small' if is_small_object else 'large'}, {'edge' if is_edge_object else 'center'}, Tools: {tool_metrics['tool_invocations']}")
     logger.info(f"Final reward: {final_reward:.3f} (IoU: {iou:.3f})")
     
     # Return detailed reward information
@@ -593,8 +606,9 @@ def arc_vision_compute_reward(data_source: str,
         "r_tool": float(r_tool),
         "r_gate": float(r_gate),
         "iou": float(iou),
-        "confidence_before": float(confidence_before),
-        "confidence_after": float(confidence_after),
+        "is_small_object": float(is_small_object),  # 1.0 or 0.0
+        "is_edge_object": float(is_edge_object),    # 1.0 or 0.0
+        "bbox_area": float(bbox_area),               # Object size
         "tool_invocations": int(tool_metrics["tool_invocations"]),
         # Convert non-numeric values to counts/flags for metrics
         "num_tools_used": len(tool_metrics["tools_used"]),
