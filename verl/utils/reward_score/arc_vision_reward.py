@@ -97,43 +97,36 @@ def parse_tool_usage(response: str) -> Dict[str, Any]:
     tool_info = {
         "tool_used": False,
         "tool_name": None,
-        "tool_calls": 0,
-        "confidence_before": 0.5,
-        "confidence_after": 0.5
+        "tool_calls": 0
     }
     
-    # Check for tool calls
-    tool_call_pattern = r'<tool_call>(.*?)</tool_call>'
-    tool_calls = re.findall(tool_call_pattern, response, re.DOTALL)
+    # Check for tool calls in multiple formats
+    tool_patterns = [
+        r'<use_tool>(.*?)</use_tool>',  # New prompt format
+        r'<tool_call>(.*?)</tool_call>'  # Legacy format
+    ]
+    
+    tool_calls = []
+    for pattern in tool_patterns:
+        tool_calls.extend(re.findall(pattern, response, re.DOTALL))
     
     if tool_calls:
         tool_info["tool_used"] = True
         tool_info["tool_calls"] = len(tool_calls)
         
-        # Try to parse tool name from first call
-        try:
-            first_call = json.loads(tool_calls[0])
-            tool_info["tool_name"] = first_call.get("name", "unknown")
-        except:
-            # Fallback to simple pattern matching
-            if "zoom" in response.lower():
-                tool_info["tool_name"] = "zoom"
-            elif "wait" in response.lower():
-                tool_info["tool_name"] = "wait"
-            elif "inspect" in response.lower():
-                tool_info["tool_name"] = "inspect"
-    
-    # Extract confidence if present
-    conf_before_pattern = r'confidence_before:\s*(\d+\.?\d*)'
-    conf_after_pattern = r'confidence_after:\s*(\d+\.?\d*)'
-    
-    conf_before_match = re.search(conf_before_pattern, response)
-    if conf_before_match:
-        tool_info["confidence_before"] = float(conf_before_match.group(1))
-    
-    conf_after_match = re.search(conf_after_pattern, response)
-    if conf_after_match:
-        tool_info["confidence_after"] = float(conf_after_match.group(1))
+        # Extract tool names
+        tool_names = []
+        for call in tool_calls:
+            if "zoom" in call.lower():
+                tool_names.append("zoom")
+            elif "wait" in call.lower():
+                tool_names.append("wait")
+            elif "inspect" in call.lower():
+                tool_names.append("inspect")
+        
+        if tool_names:
+            tool_info["tool_name"] = tool_names[0]  # First tool used
+            tool_info["all_tools"] = tool_names  # All tools used
     
     return tool_info
 
@@ -143,22 +136,19 @@ class ArcVisionRewardScore:
     
     Implements the 3-component reward structure:
     1. Task performance (IoU)
-    2. Tool effectiveness (confidence gain)
+    2. Tool effectiveness (based on objective difficulty)
     3. Gating penalty (prevent tool abuse)
     """
     
     def __init__(self, 
-                 confidence_threshold: float = 0.7,
                  reward_weights: Dict[str, float] = None,
                  tool_penalties: Dict[str, float] = None):
         """Initialize Arc Vision reward model.
         
         Args:
-            confidence_threshold: Threshold for tool invocation
             reward_weights: Weights for reward components
             tool_penalties: Penalties for different failure modes
         """
-        self.confidence_threshold = confidence_threshold
         self.weights = reward_weights or {
             "task": 0.6,
             "tool": 0.3,
@@ -237,41 +227,46 @@ class ArcVisionRewardScore:
         else:
             r_task = 0.0  # Failed to produce valid bbox
         
-        # Component 2: Tool effectiveness
+        # Calculate objective difficulty based on ground truth bbox
+        bbox_area = (gt_bbox[2] - gt_bbox[0]) * (gt_bbox[3] - gt_bbox[1])
+        is_small_object = bbox_area < 0.05  # Less than 5% of screen
+        is_edge_object = (gt_bbox[0] < 0.1 or gt_bbox[1] < 0.1 or 
+                          gt_bbox[2] > 0.9 or gt_bbox[3] > 0.9)
+        
+        # Component 2: Tool effectiveness based on objective difficulty
         r_tool = 0.0
         if tool_info["tool_used"]:
-            # Calculate confidence gain
-            conf_gain = tool_info["confidence_after"] - tool_info["confidence_before"]
-            
-            # Reward based on effectiveness
-            if tool_info["confidence_before"] < self.confidence_threshold:
-                if tool_info["confidence_after"] >= self.confidence_threshold:
-                    # Crossed threshold - maximum reward
-                    r_tool = 1.0
-                elif conf_gain > 0:
-                    # Positive gain but didn't cross threshold
-                    r_tool = conf_gain * 2.0  # Scale up small gains
-                else:
-                    # Tool didn't help
-                    r_tool = self.penalties["ineffective_tool"]
+            if is_small_object:
+                # Tools are necessary for small objects
+                r_tool = 0.4 * r_task  # Scale by task success
+            elif is_edge_object:
+                # Tools helpful for edge objects
+                r_tool = 0.2 * r_task
             else:
-                # Already confident but used tool anyway
-                r_tool = self.penalties["unnecessary_tool"]
+                # Tools less necessary for large, centered objects
+                r_tool = 0.1 * r_task
+            
+            # Cap maximum tool reward
+            r_tool = min(r_tool, 0.4)
             
             # Penalty for excessive tool use
             if tool_info["tool_calls"] > 2:
                 r_tool += self.penalties["excessive_tools"] * (tool_info["tool_calls"] - 2)
+        else:
+            # No tools used - small reward if performed well without tools
+            if not is_small_object and r_task > 0.7:
+                r_tool = 0.1  # Reward efficiency on easy objects
         
-        # Component 3: Gating penalty
+        # Component 3: Gating penalty based on objective criteria
         r_gate = 0.0
-        if tool_info["confidence_before"] > self.confidence_threshold and tool_info["tool_used"]:
-            # Unnecessary tool use
-            r_gate = self.penalties["unnecessary_tool"]
-        elif tool_info["confidence_before"] < self.confidence_threshold and not tool_info["tool_used"]:
-            # Missed opportunity to use tools
-            # Only penalize if task performance is poor
-            if r_task < 0.5:
-                r_gate = self.penalties["missed_opportunity"]
+        
+        # Penalty for missing tools on genuinely hard objects
+        if is_small_object and not tool_info["tool_used"] and r_task < 0.5:
+            r_gate += self.penalties["missed_opportunity"]
+        
+        # Penalty for excessive tool use on easy objects
+        if not is_small_object and not is_edge_object and tool_info["tool_calls"] > 1:
+            r_gate += self.penalties["unnecessary_tool"] * 0.5  # Softer penalty
         
         # Combine components
         total_reward = (
@@ -284,21 +279,18 @@ class ArcVisionRewardScore:
 
 
 def compute_score(response: str, ground_truth: str, 
-                  confidence_threshold: float = 0.7,
                   reward_weights: Dict[str, float] = None) -> float:
     """Convenience function to compute Arc Vision reward for a single sample.
     
     Args:
         response: Model response
         ground_truth: Ground truth bbox as JSON string
-        confidence_threshold: Confidence threshold for tool use
         reward_weights: Optional custom reward weights
         
     Returns:
         Reward score
     """
     reward_model = ArcVisionRewardScore(
-        confidence_threshold=confidence_threshold,
         reward_weights=reward_weights
     )
     

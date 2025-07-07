@@ -95,7 +95,6 @@ def arc_vision_compute_reward(
         score = compute_score(
             response=response,
             ground_truth=ground_truth_json,
-            confidence_threshold=kwargs.get('confidence_threshold', 0.7),
             reward_weights=kwargs.get('reward_weights')
         )
         

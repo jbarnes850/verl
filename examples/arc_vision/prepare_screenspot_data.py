@@ -42,43 +42,46 @@ def create_reasoning_prompt(instruction: str) -> str:
     2. Uses decision-based approach (tool or no tool)
     3. Maintains compatibility with reward function
     4. Leverages model's training on reasoning and tool usage
+    5. ENFORCES reasoning before any output to prevent short responses
     """
     # For Qwen2.5-VL, we use <image> in the prompt text
     prompt = f"""<image>
 {instruction}
 
-Step 1: Analyze the target element
+You MUST complete ALL steps below in order:
+
+Step 1: Analyze the target element thoroughly
 <reasoning>
-Examine these specific factors:
-- Size: Is the element smaller than 5% of screen area?
-- Visibility: Can you clearly see all edges and boundaries?
-- Contrast: Is it easily distinguishable from the background?
-- Occlusion: Is any part hidden or overlapped?
+Examine and describe:
+- Element location: Where on the screen is it located?
+- Size: Estimate the percentage of screen area it occupies
+- Visibility: Are all edges and boundaries clearly visible?
+- Contrast: How well does it stand out from the background?
+- Occlusion: Is any part hidden, overlapped, or unclear?
+- Challenges: What makes this element easy or difficult to detect?
 </reasoning>
 
-Step 2: Decide your approach based on the analysis above
+Step 2: Based on your analysis, decide your approach
 
-IF the element is CLEAR (all edges visible, good contrast, >5% screen area):
-→ Provide direct detection:
+If the element is CLEAR (visible edges, good contrast, >5% screen area):
+→ Directly provide the bounding box:
 <bbox>[x1, y1, x2, y2]</bbox>
 
-IF the element is UNCLEAR (small, blurry, partially hidden, or low contrast):
-→ Use tools FIRST, then detect:
-<use_tool>zoom_ui_element</use_tool> - for small elements
-<use_tool>inspect_element</use_tool> - for unclear boundaries
-<use_tool>wait_for_ui</use_tool> - if elements are still loading
+If the element needs assistance (small, unclear, or partially hidden):
+→ Use appropriate tools to get better visibility:
+<use_tool>zoom_ui_element</use_tool> - for elements <5% of screen
+<use_tool>inspect_element</use_tool> - for unclear boundaries or low contrast
+<use_tool>wait_for_ui</use_tool> - if UI is still loading or animating
 
-CRITICAL RULES:
-- Coordinates must be normalized (0.0 to 1.0)
-- Format: [x1, y1, x2, y2] where x1<x2 and y1<y2
-- x1,y1 = top-left; x2,y2 = bottom-right
-- Example: <bbox>[0.142, 0.058, 0.384, 0.126]</bbox>
+IMPORTANT: When using tools, wait for the tool results before providing the final bbox.
+The system will execute your tools and provide results in the next interaction.
 
-Decision threshold: If ANY of these are true, use tools:
-- Element width or height < 0.05 (5% of screen)
-- Cannot see all four edges clearly
-- Low contrast with background
-- Overlapped by other elements"""
+CRITICAL REQUIREMENTS:
+1. You MUST provide reasoning in Step 1 before ANY other output
+2. Coordinates must be normalized (0.0 to 1.0)
+3. Format: [x1, y1, x2, y2] where x1<x2 and y1<y2
+4. x1,y1 = top-left corner; x2,y2 = bottom-right corner
+5. Example: <bbox>[0.142, 0.058, 0.384, 0.126]</bbox>"""
     
     return prompt
 
@@ -141,7 +144,6 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
         "reward_model": {  # Store as dict, not JSON string
             "style": "arc_vision",
             "ground_truth": bbox_normalized,
-            "confidence_threshold": 0.7,
             "reward_weights": {
                 "task": 0.6,
                 "tool": 0.3,

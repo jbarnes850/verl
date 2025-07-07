@@ -18,23 +18,122 @@ import logging
 import time
 import os
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 from pathlib import Path
-
-# Remove unused import - ArcVisionRewardScore not needed
+import numpy as np
+import sys
 
 # Add project root to sys.path for imports
-import sys
-import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from examples.arc_vision.utils.confidence_tracker import (
-    extract_tool_usage_as_confidence_proxy,
-    analyze_reasoning_for_confidence,
-    compute_effective_confidence
-)
-
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# UTILITY FUNCTIONS TO REDUCE CODE DUPLICATION
+# ==============================================================================
+
+def calculate_bbox_area(bbox: List[float]) -> float:
+    """Calculate the area of a bounding box.
+    
+    Args:
+        bbox: Bounding box coordinates [x1, y1, x2, y2]
+        
+    Returns:
+        Area of the bounding box (normalized 0-1)
+    """
+    x_diff = bbox[2] - bbox[0]
+    y_diff = bbox[3] - bbox[1]
+    
+    # Only fix if clearly invalid (negative or zero area)
+    if x_diff <= 0 or y_diff <= 0:
+        logger.warning(f"Invalid bbox: {bbox}, using minimum area")
+        return 0.01  # 1% minimum area to prevent division issues
+    
+    return x_diff * y_diff
+
+
+def classify_object_difficulty(bbox: List[float], bbox_area: float = None) -> Tuple[bool, bool]:
+    """Classify object difficulty based on size and position.
+    
+    Args:
+        bbox: Bounding box coordinates [x1, y1, x2, y2]
+        bbox_area: Pre-calculated bbox area (optional)
+        
+    Returns:
+        Tuple of (is_small_object, is_edge_object)
+    """
+    if bbox_area is None:
+        bbox_area = calculate_bbox_area(bbox)
+    
+    is_small_object = bbox_area < 0.05  # Less than 5% of screen
+    is_edge_object = (bbox[0] < 0.1 or bbox[1] < 0.1 or 
+                      bbox[2] > 0.9 or bbox[3] > 0.9)
+    
+    return is_small_object, is_edge_object
+
+
+def get_performance_category(iou: float) -> str:
+    """Categorize detection performance based on IoU.
+    
+    Args:
+        iou: Intersection over Union score
+        
+    Returns:
+        Performance category string
+    """
+    if iou > 0.8:
+        return "excellent"
+    elif iou > 0.5:
+        return "good"
+    elif iou > 0.1:
+        return "poor"
+    else:
+        return "failed"
+
+
+def extract_tool_usage(response: str) -> Dict[str, Any]:
+    """Extract tool usage information from response.
+    
+    Args:
+        response: Model's complete response
+        
+    Returns:
+        Dictionary with tool usage metrics
+    """
+    tool_metrics = {
+        "tool_invocations": 0,
+        "tools_used": []
+    }
+    
+    # Check for tool calls in multiple formats
+    tool_patterns = [
+        r'<use_tool>(.*?)</use_tool>',  # New prompt format
+        r'<tool_call>(.*?)</tool_call>'  # Legacy format
+    ]
+    
+    tool_calls = []
+    for pattern in tool_patterns:
+        tool_calls.extend(re.findall(pattern, response, re.DOTALL))
+    
+    if tool_calls:
+        tool_metrics["tool_invocations"] = len(tool_calls)
+        
+        # Extract tool names
+        tool_mapping = {
+            "zoom": "zoom",
+            "wait": "wait", 
+            "inspect": "inspect"
+        }
+        
+        for call in tool_calls:
+            call_lower = call.lower()
+            for keyword, tool_name in tool_mapping.items():
+                if keyword in call_lower:
+                    tool_metrics["tools_used"].append(tool_name)
+                    break  # Only match first tool per call
+    
+    return tool_metrics
 
 
 # ==============================================================================
@@ -51,7 +150,7 @@ def setup_detailed_logging(output_dir: str = "outputs/arc_vision") -> Dict[str, 
     
     log_files = {
         "reasoning_traces": str(base_dir / "reasoning_traces.jsonl"),
-        "confidence_calibration": str(base_dir / "confidence_calibration.jsonl"),
+        "tool_effectiveness": str(base_dir / "tool_effectiveness.jsonl"),
         "tool_patterns": str(base_dir / "tool_patterns.jsonl"),
         "contradictions": str(base_dir / "contradictions.jsonl")
     }
@@ -94,8 +193,8 @@ def log_reasoning_trace(prompt_str: str, response_str: str, actual_iou: float,
     try:
         # Extract reasoning and tool information
         reasoning = extract_reasoning_section(response_str)
-        tool_metrics = extract_tool_usage_as_confidence_proxy(response_str)
-        confidence_before, confidence_after = compute_effective_confidence(response_str)
+        tool_metrics = extract_tool_usage(response_str)
+        # Confidence tracking removed - not used in reward calculation
         
         trace_data = {
             "timestamp": time.time(),
@@ -105,9 +204,6 @@ def log_reasoning_trace(prompt_str: str, response_str: str, actual_iou: float,
             "reasoning_length": len(reasoning),
             "tools_used": tool_metrics["tools_used"],
             "tool_invocations": tool_metrics["tool_invocations"],
-            "confidence_before": confidence_before,
-            "confidence_after": confidence_after,
-            "implied_confidence": tool_metrics["implied_confidence"],
             "actual_iou": actual_iou,
             "ground_truth_bbox": ground_truth,
             # TODO: Add bbox parsing from response for complete analysis
@@ -122,50 +218,43 @@ def log_reasoning_trace(prompt_str: str, response_str: str, actual_iou: float,
         logger.warning(f"Failed to log reasoning trace: {e}")
 
 
-def track_confidence_calibration(predicted_confidence: float, actual_iou: float, 
-                                tool_used: bool, response_str: str, log_file: str) -> None:
-    """Track how well confidence predicts actual performance.
+def track_tool_effectiveness(tool_used: bool, actual_iou: float, 
+                            ground_truth: List[float], response_str: str, log_file: str) -> None:
+    """Track tool usage effectiveness based on objective metrics.
     
-    TODO: Monitors confidence calibration accuracy for model reliability
+    TODO: Monitors tool effectiveness for different object sizes and positions
     """
     try:
-        # Calculate calibration metrics
-        calibration_error = abs(predicted_confidence - actual_iou)
-        overconfident = predicted_confidence > actual_iou + 0.1
-        underconfident = predicted_confidence < actual_iou - 0.1
+        tool_metrics = extract_tool_usage(response_str)
         
-        # Analyze reasoning confidence indicators
-        reasoning_confidence = analyze_reasoning_for_confidence(response_str)
+        # Calculate objective difficulty metrics
+        bbox_area = calculate_bbox_area(ground_truth)
+        is_small_object, is_edge_object = classify_object_difficulty(ground_truth, bbox_area)
         
-        calibration_data = {
+        effectiveness_data = {
             "timestamp": time.time(),
-            "predicted_confidence": predicted_confidence,
-            "actual_iou": actual_iou,
-            "calibration_error": calibration_error,
-            "overconfident": overconfident,
-            "underconfident": underconfident,
             "tool_used": tool_used,
-            "reasoning_confidence": reasoning_confidence,
-            "confidence_alignment": abs(predicted_confidence - reasoning_confidence),
+            "tools_used": tool_metrics["tools_used"],
+            "tool_count": tool_metrics["tool_invocations"],
+            "actual_iou": actual_iou,
+            "bbox_area": bbox_area,
+            "is_small_object": is_small_object,
+            "is_edge_object": is_edge_object,
+            "tool_effective": tool_used and actual_iou > 0.5,
             # Performance categories for analysis
-            "performance_category": (
-                "excellent" if actual_iou > 0.8 else
-                "good" if actual_iou > 0.5 else
-                "poor" if actual_iou > 0.1 else
-                "failed"
-            ),
-            "confidence_category": (
-                "high" if predicted_confidence > 0.8 else
-                "medium" if predicted_confidence > 0.5 else
-                "low"
+            "performance_category": get_performance_category(actual_iou),
+            "difficulty_category": (
+                "hard" if is_small_object else
+                "medium" if is_edge_object else
+                "easy"
             )
         }
         
         with open(log_file, 'a') as f:
-            f.write(json.dumps(calibration_data) + '\n')
+            f.write(json.dumps(effectiveness_data) + '\n')
             
     except Exception as e:
-        logger.warning(f"Failed to track confidence calibration: {e}")
+        logger.warning(f"Failed to track tool effectiveness: {e}")
 
 
 def monitor_tool_patterns(response_str: str, actual_iou: float, 
@@ -175,32 +264,23 @@ def monitor_tool_patterns(response_str: str, actual_iou: float,
     TODO: Analyzes tool selection patterns and effectiveness
     """
     try:
-        tool_metrics = extract_tool_usage_as_confidence_proxy(response_str)
-        confidence_before, confidence_after = compute_effective_confidence(response_str)
+        tool_metrics = extract_tool_usage(response_str)
+        # Confidence tracking removed - not used in reward calculation
         
-        # Analyze tool effectiveness
+        # Analyze tool effectiveness based on IoU improvement
         tool_effective = (
             tool_metrics["tool_invocations"] > 0 and 
-            confidence_after > confidence_before + 0.1
+            actual_iou > 0.5  # Tool effective if it helped achieve decent IoU
         )
-        
-        # Calculate confidence gain from tools
-        confidence_gain = confidence_after - confidence_before if tool_metrics["tool_invocations"] > 0 else 0.0
         
         pattern_data = {
             "timestamp": time.time(),
             "tools_used": tool_metrics["tools_used"],
             "tool_count": tool_metrics["tool_invocations"],
-            "confidence_before": confidence_before,
-            "confidence_after": confidence_after,
-            "confidence_gain": confidence_gain,
+            # Confidence tracking removed
             "actual_iou": actual_iou,
             "tool_effective": tool_effective,
-            "ground_truth_area": (
-                float(ground_truth[2]) - float(ground_truth[0])
-            ) * (
-                float(ground_truth[3]) - float(ground_truth[1])
-            ) if isinstance(ground_truth, (list, tuple)) and len(ground_truth) >= 4 else 0.0,
+            "ground_truth_area": calculate_bbox_area(ground_truth) if isinstance(ground_truth, (list, tuple)) and len(ground_truth) >= 4 else 0.0,
             # Tool usage analysis
             "used_zoom": "zoom" in tool_metrics["tools_used"],
             "used_wait": "wait" in tool_metrics["tools_used"],
@@ -222,8 +302,8 @@ def detect_tool_contradictions(response_str: str, actual_iou: float,
     TODO: Identifies listener disagreement patterns and reasoning contradictions
     """
     try:
-        tool_metrics = extract_tool_usage_as_confidence_proxy(response_str)
-        confidence_before, confidence_after = compute_effective_confidence(response_str)
+        tool_metrics = extract_tool_usage(response_str)
+        # Confidence tracking removed - not used in reward calculation
         reasoning = extract_reasoning_section(response_str)
         
         # Detect various contradiction patterns
@@ -237,23 +317,15 @@ def detect_tool_contradictions(response_str: str, actual_iou: float,
             "missed_tool_opportunity": (
                 tool_metrics["tool_invocations"] == 0 and 
                 actual_iou < 0.3 and
-                confidence_before > 0.6  # Overconfident
+                True  # Always check for missed opportunities
             ),
             # Tool used but no confidence improvement
             "ineffective_tool_use": (
                 tool_metrics["tool_invocations"] > 0 and
-                (confidence_after - confidence_before) < 0.05
+                actual_iou < 0.5  # Tool ineffective if poor result
             ),
             # High confidence but poor performance
-            "overconfidence_failure": (
-                confidence_before > 0.8 and
-                actual_iou < 0.3
-            ),
-            # Low confidence but good performance
-            "underconfidence_success": (
-                confidence_before < 0.4 and
-                actual_iou > 0.7
-            ),
+            # Confidence-based contradictions removed
             # Reasoning suggests uncertainty but no tools used
             "reasoning_tool_mismatch": (
                 len(reasoning) > 0 and
@@ -268,8 +340,7 @@ def detect_tool_contradictions(response_str: str, actual_iou: float,
             contradiction_data = {
                 "timestamp": time.time(),
                 "actual_iou": actual_iou,
-                "confidence_before": confidence_before,
-                "confidence_after": confidence_after,
+                # Confidence tracking removed
                 "tools_used": tool_metrics["tools_used"],
                 "tool_count": tool_metrics["tool_invocations"],
                 "reasoning_length": len(reasoning),
@@ -301,7 +372,6 @@ def arc_vision_compute_reward(data_source: str,
                             solution_str: str, 
                             ground_truth: Any, 
                             extra_info: Dict = None,
-                            confidence_threshold: float = 0.7,
                             reward_weights: Dict[str, float] = None,
                             tool_penalties: Dict[str, float] = None,
                             **kwargs):
@@ -312,7 +382,7 @@ def arc_vision_compute_reward(data_source: str,
     
     Where:
     - R_task: IoU-based detection accuracy
-    - R_tool: Tool effectiveness based on confidence gain
+    - R_tool: Tool effectiveness based on objective difficulty (bbox size, position)
     - R_gate: Penalties for tool misuse
     
     Args:
@@ -320,7 +390,7 @@ def arc_vision_compute_reward(data_source: str,
         solution_str: Model response string containing reasoning and tool usage
         ground_truth: Ground truth bounding box coordinates [x1, y1, x2, y2]
         extra_info: Additional information (unused for Arc Vision)
-        confidence_threshold: Threshold for confidence-gated tool invocation (default: 0.7)
+        # confidence_threshold removed - using objective metrics instead
         reward_weights: Weights for reward components (default: α=0.6, β=0.3, γ=0.1)
         tool_penalties: Penalties for different tool usage failure modes
         **kwargs: Additional keyword arguments
@@ -361,9 +431,54 @@ def arc_vision_compute_reward(data_source: str,
     r_gate = 0.0
     
     # ==============================================================================
+    # Multi-Turn Support: Detect response type
+    # ==============================================================================
+    # Extract tool usage early to check response type
+    tool_metrics = extract_tool_usage(solution_str)
+    
+    # Check if this is a tool-only response (multi-turn first turn)
+    # Look for presence of tools and absence of bbox
+    has_tools = tool_metrics["tool_invocations"] > 0
+    
+    # Quick check for bbox presence
+    bbox_pattern = r'<bbox>.*?</bbox>|\[\s*[\d\.\s,\-]+\s*\]'
+    has_bbox = bool(re.search(bbox_pattern, solution_str, re.IGNORECASE))
+    
+    # If tool-only response (no bbox), return appropriate reward
+    if has_tools and not has_bbox:
+        logger.info(f"Tool-only response detected with {tool_metrics['tool_invocations']} tools")
+        
+        # Calculate objective difficulty from ground truth
+        bbox_area = calculate_bbox_area(ground_truth)
+        is_small_object, is_edge_object = classify_object_difficulty(ground_truth, bbox_area)
+        
+        # Give small positive reward for appropriate tool use
+        if is_small_object or is_edge_object:
+            # Tools are appropriate for difficult objects
+            tool_reward = 0.1  # Small positive reward
+        else:
+            # Tools might be unnecessary for easy objects
+            tool_reward = 0.0  # Neutral reward
+        
+        return {
+            "score": float(tool_reward),
+            "r_task": 0.0,  # No task completion yet
+            "r_tool": float(tool_reward),
+            "r_gate": 0.0,
+            "iou": 0.0,
+            "is_small_object": float(is_small_object),
+            "is_edge_object": float(is_edge_object),
+            "bbox_area": float(bbox_area),
+            "tool_invocations": int(tool_metrics["tool_invocations"]),
+            "num_tools_used": len(tool_metrics["tools_used"]),
+            "num_gate_penalties": 0,
+            "total_gate_penalty": 0.0,
+            "response_type": "tool_only"  # Indicator for debugging
+        }
+    
+    # ==============================================================================
     # 1. R_task: IoU-based Detection Accuracy
     # ==============================================================================
-    import re
     
     # Extract predicted bbox from solution - try multiple formats
     predicted_bbox = None
@@ -381,6 +496,9 @@ def arc_vision_compute_reward(data_source: str,
         r'bounding box:\s*\[([\d\.\s,\-]+)\]',  # Full phrase
         r'<click>([\d\s,\-]+)</click>',  # Qwen2.5-VL click format
         r'<point>([\d\s,\-]+)</point>',  # Qwen2.5-VL point format
+        r'<box>([\d\.\s,\-]+)</box>',  # Alternative box tag
+        r'(?:detect|found|located).*?\[([\d\.\s,\-]+)\]',  # With context words
+        r'(?:x1.*?y1.*?x2.*?y2.*?)[\s:=]*([\d\.\s,\-]+)',  # Explicit coordinate names
     ]
     
     for pattern in patterns:
@@ -467,19 +585,26 @@ def arc_vision_compute_reward(data_source: str,
             logger.warning(f"Predicted bbox: {predicted_bbox}, Ground truth: {ground_truth}")
             r_task = 0.0
     else:
-        logger.warning(f"No bbox found in response. First 200 chars: {solution_str[:200]}")
+        # No bbox found - this might be expected for some responses
+        logger.info(f"No bbox found in response (length: {len(solution_str)})")
+        # Only warn if there are no tools either (completely empty response)
+        if not has_tools:
+            logger.warning(f"Response has neither bbox nor tools. First 500 chars: {solution_str[:500]}")
+            # Log if response contains any coordinate-like patterns
+            any_numbers = re.findall(r'\d+\.?\d*', solution_str)
+            if any_numbers:
+                logger.warning(f"Found numbers in response: {any_numbers[:10]}")
         r_task = 0.0
     
     # ==============================================================================
-    # 2. Extract Tool Usage and Objective Task Properties
+    # 2. Calculate Objective Task Properties (tool_metrics already extracted above)
     # ==============================================================================
-    tool_metrics = extract_tool_usage_as_confidence_proxy(solution_str)
     # REMOVED confidence extraction - always returns artificial values
     # Instead, calculate objective difficulty from ground truth
-    bbox_area = (ground_truth[2] - ground_truth[0]) * (ground_truth[3] - ground_truth[1])
-    is_small_object = bbox_area < 0.05  # Less than 5% of screen
-    is_edge_object = (ground_truth[0] < 0.1 or ground_truth[1] < 0.1 or 
-                      ground_truth[2] > 0.9 or ground_truth[3] > 0.9)
+    
+    # Calculate objective difficulty from ground truth
+    bbox_area = calculate_bbox_area(ground_truth)
+    is_small_object, is_edge_object = classify_object_difficulty(ground_truth, bbox_area)
     
     # ==============================================================================
     # 3. R_tool: Tool Effectiveness Based on Task Difficulty and Success
@@ -552,44 +677,12 @@ def arc_vision_compute_reward(data_source: str,
     
     # Do not clamp - allow negative rewards to propagate for proper RL signal
     
-    # ==============================================================================
-    # DETAILED LOGGING INTEGRATION - Log all monitoring data
-    # ==============================================================================
-    try:
-        log_files = get_log_files()
-        
-        # 1. Log reasoning traces - captures reasoning for listener analysis
-        log_reasoning_trace(
-            prompt_str="",  # Not available in this interface
-            response_str=solution_str,
-            actual_iou=iou,
-            ground_truth=ground_truth,
-            log_file=log_files["reasoning_traces"]
-        )
-        
-        # 2. REMOVED confidence calibration tracking
-        # Since model doesn't output real confidence, tracking fake confidence
-        # creates misleading logs. Focus on actual behavior instead.
-        
-        # 3. Monitor tool patterns - analyzes tool effectiveness
-        monitor_tool_patterns(
-            response_str=solution_str,
-            actual_iou=iou,
-            ground_truth=ground_truth,
-            log_file=log_files["tool_patterns"]
-        )
-        
-        # 4. Detect contradictions - identifies listener disagreement patterns
-        detect_tool_contradictions(
-            response_str=solution_str,
-            actual_iou=iou,
-            ground_truth=ground_truth,
-            log_file=log_files["contradictions"]
-        )
-        
-    except Exception as e:
-        # Don't fail training if logging fails
-        logger.warning(f"Detailed logging failed: {e}")
+    # Safety check: Ensure final reward is finite
+    if not np.isfinite(final_reward):
+        logger.error(f"Non-finite reward detected! Components: r_task={r_task}, r_tool={r_tool}, r_gate={r_gate}")
+        logger.error(f"Weights: {reward_weights}, Ground truth: {ground_truth}")
+        final_reward = -1.0  # Penalize but keep training stable
+    
     
     # Log reward statistics for debugging
     logger.info(f"Arc Vision reward breakdown - Task: {r_task:.3f}, Tool: {r_tool:.3f}, Gate: {r_gate:.3f}")
@@ -619,11 +712,11 @@ def arc_vision_compute_reward(data_source: str,
         # "gate_penalties": gate_penalties,
         # "predicted_bbox": predicted_bbox,
         # "ground_truth": ground_truth
+        "response_type": "bbox_response"  # Indicator for debugging
     }
 
 
-def create_arc_vision_compute_score_fn(confidence_threshold: float = 0.7,
-                                      reward_weights: Dict[str, float] = None,
+def create_arc_vision_compute_score_fn(reward_weights: Dict[str, float] = None,
                                       tool_penalties: Dict[str, float] = None):
     """Create a compute_score function configured for Arc Vision.
     
@@ -632,7 +725,6 @@ def create_arc_vision_compute_score_fn(confidence_threshold: float = 0.7,
     directly without needing to pass custom parameters.
     
     Args:
-        confidence_threshold: Threshold for confidence-gated tool invocation
         reward_weights: Weights for reward components (task, tool, gate)
         tool_penalties: Penalties for different tool usage failure modes
         
@@ -646,7 +738,6 @@ def create_arc_vision_compute_score_fn(confidence_threshold: float = 0.7,
             solution_str=solution_str,
             ground_truth=ground_truth,
             extra_info=extra_info,
-            confidence_threshold=confidence_threshold,
             reward_weights=reward_weights,
             tool_penalties=tool_penalties,
             **kwargs
@@ -657,7 +748,6 @@ def create_arc_vision_compute_score_fn(confidence_threshold: float = 0.7,
 
 # Create the default Arc Vision compute score function
 arc_vision_compute_score_fn = create_arc_vision_compute_score_fn(
-    confidence_threshold=0.7,
     reward_weights={"task": 0.6, "tool": 0.3, "gate": 0.1},
     tool_penalties={
         "unnecessary_tool": -0.5,
