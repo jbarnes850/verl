@@ -278,6 +278,13 @@ def compute_advantage(
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
+        
+        # SEC Curriculum: Update Q-values with learning gain from GRPO advantages
+        if hasattr(data, 'sec_curriculum') and data.sec_curriculum is not None:
+            import numpy as np
+            learning_gain = float(np.mean(np.abs(advantages.cpu().numpy())))
+            arm_idx = data.non_tensor_batch.get("sec_arm_idx", 0)
+            data.sec_curriculum.update_q_values(arm_idx, learning_gain)
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
