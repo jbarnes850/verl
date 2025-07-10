@@ -229,6 +229,36 @@ def create_rl_dataset(data_paths, data_config, tokenizer, processor):
     from torch.utils.data import Dataset
 
     from verl.utils.dataset.rl_dataset import RLHFDataset
+    
+    # SEC Curriculum: Handle CRMArena data preprocessing
+    if hasattr(data_config, 'use_crmarena') and data_config.use_crmarena:
+        # Import the original CRM-Arena data formatter
+        import sys
+        from pathlib import Path
+        crm_arena_path = Path(__file__).parent.parent.parent / "crm-arena" / "src"
+        if str(crm_arena_path) not in sys.path:
+            sys.path.append(str(crm_arena_path))
+        
+        from verl_data_utils import VERLDataFormatter
+        
+        # Use VERLDataFormatter to convert CRMArena data
+        formatter = VERLDataFormatter(output_dir=data_config.get("cache_dir", "./data/verl_format"))
+        
+        # Convert CRMArena data to VERL format
+        train_path, val_path, test_path = formatter.format_crmarena_for_verl(
+            dataset_name=data_config.get("dataset_name", "Salesforce/CRMArenaPro"),
+            train_tasks=data_config.get("train_tasks", None),
+            test_tasks=data_config.get("test_tasks", None),
+            train_split_ratio=data_config.get("train_split_ratio", 0.75),
+        )
+        
+        # Use converted data paths
+        if "train" in str(data_paths[0]):
+            data_paths = [train_path]
+        elif "val" in str(data_paths[0]):
+            data_paths = [val_path]
+        elif "test" in str(data_paths[0]):
+            data_paths = [test_path]
 
     # Check if a custom dataset class is specified in the data configuration
     # and if the path to the custom class is provided
@@ -272,6 +302,20 @@ def create_rl_sampler(data_config, dataset):
     import torch
     from torch.utils.data import RandomSampler, SequentialSampler
 
+    # SEC Curriculum: Use SEC sampler if enabled
+    if hasattr(data_config, 'use_sec_curriculum') and data_config.use_sec_curriculum:
+        from verl.trainer.ppo.core_algos import SECCurriculum
+        
+        sec_curriculum = SECCurriculum(
+            alpha=data_config.get('sec_alpha', 0.3),
+            tau=data_config.get('sec_tau', 0.5)
+        )
+        
+        # Store curriculum in dataset for access during training
+        dataset.sec_curriculum = sec_curriculum
+        
+        return SECCurriculumSampler(dataset, sec_curriculum)
+    
     # Use a sampler to facilitate checkpoint resumption.
     # If shuffling is enabled in the data configuration, create a random sampler.
     if data_config.shuffle:
@@ -283,6 +327,54 @@ def create_rl_sampler(data_config, dataset):
         sampler = SequentialSampler(data_source=dataset)
 
     return sampler
+
+
+class SECCurriculumSampler:
+    """SEC curriculum-based sampler for VERL training."""
+    
+    def __init__(self, dataset, sec_curriculum):
+        self.dataset = dataset
+        self.sec_curriculum = sec_curriculum
+        self.current_arm = 0
+        
+        # Organize examples by arm using original CRM-Arena logic
+        self.examples_by_arm = self._organize_by_arm()
+        
+    def _organize_by_arm(self):
+        """Organize dataset indices by curriculum arm using original CRM-Arena logic."""
+        arm_to_indices = {arm: [] for arm in range(self.sec_curriculum.num_arms)}
+        
+        for idx in range(len(self.dataset)):
+            example = self.dataset[idx]
+            # Get arm_idx from extra_info if available
+            arm_idx = example.get('extra_info', {}).get('arm_idx', 0)
+            if arm_idx in arm_to_indices:
+                arm_to_indices[arm_idx].append(idx)
+        
+        return arm_to_indices
+        
+    def __iter__(self):
+        """Generate indices based on SEC curriculum arm selection."""
+        while True:
+            # Select arm using SEC curriculum
+            self.current_arm = self.sec_curriculum.select_arm()
+            
+            # Get examples for this arm
+            arm_indices = self.examples_by_arm.get(self.current_arm, [])
+            
+            # If arm is empty, find next non-empty arm
+            if not arm_indices:
+                for arm_idx in range(self.sec_curriculum.num_arms):
+                    if self.examples_by_arm[arm_idx]:
+                        arm_indices = self.examples_by_arm[arm_idx]
+                        break
+            
+            # Yield indices from selected arm
+            for idx in arm_indices:
+                yield idx
+    
+    def __len__(self):
+        return len(self.dataset)
 
 
 if __name__ == "__main__":

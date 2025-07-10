@@ -1,0 +1,85 @@
+# SEC Curriculum Training Config for VERL
+# Integrates Self-Evolving Curriculum with VERL's GRPO implementation
+
+# dataset config
+data:
+  # SEC Curriculum Configuration
+  use_sec_curriculum: True
+  sec_alpha: 0.3  # SEC paper TD(0) learning rate
+  sec_tau: 0.5    # SEC paper softmax temperature
+  
+  # CRMArena data configuration
+  use_crmarena: true
+  dataset_name: "Salesforce/CRMArenaPro"
+  train_tasks: ["case_routing", "lead_routing", "lead_qualification", "knowledge_qa", "sales_insight_mining", "wrong_stage_rectification", "activity_priority", "named_entity_disambiguation", "handle_time", "transfer_count", "top_issue_identification", "monthly_trend_analysis", "best_region_identification", "sales_amount_understanding", "sales_cycle_understanding", "conversion_rate_comprehension"]
+  test_tasks: ["invalid_config", "policy_violation_identification", "quote_approval"]
+  train_split_ratio: 0.75
+  cache_dir: "./data/verl_format"
+  
+  # Data paths (will be auto-generated from CRMArena data)
+  train_files: ["./data/verl_format/train.parquet"]
+  val_files: ["./data/verl_format/val.parquet"]
+  
+  prompt_key: prompt
+  max_prompt_length: 1024
+  max_response_length: 4096
+  
+  # SEC paper requirement
+  train_batch_size: 256
+  val_batch_size: 32
+  
+  shuffle: False  # SEC curriculum handles sampling
+
+# model config  
+actor_rollout_ref:
+  model:
+    path: Qwen/Qwen2.5-3B
+    enable_gradient_checkpointing: True
+    
+  rollout:
+    name: vllm
+    # SEC paper requirement: 8 rollouts
+    n: 8
+    temperature: 0.7
+    top_p: 0.9
+    max_new_tokens: 100
+    
+  actor:
+    optim:
+      # SEC paper requirement
+      lr: 0.000001
+      betas: [0.9, 0.99]
+      eps: 0.00000001
+      
+    max_grad_norm: 1.0
+    gradient_accumulation_steps: 1
+
+# critic config (not used with GRPO but required)
+critic:
+  model:
+    path: Qwen/Qwen2.5-3B
+
+# algorithm config
+algorithm:
+  # SEC paper uses GRPO
+  adv_estimator: grpo
+  norm_adv_by_std_in_grpo: True
+  
+  # SEC paper: no KL penalty
+  use_kl_in_reward: False
+  kl_penalty: kl
+
+# trainer config
+trainer:
+  project_name: sec_curriculum_verl
+  experiment_name: sec_grpo_integration
+  total_epochs: 1
+  max_epochs: 1
+  save_freq: 50
+  test_freq: 25
+  n_gpus_per_node: 2
+  nnodes: 1
+
+# Ray initialization
+ray_init:
+  num_cpus: 16

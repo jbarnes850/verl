@@ -991,3 +991,45 @@ def compute_pf_ppo_reweight_data(
     resampled_data.meta_info = resampled_meta_info
 
     return resampled_data
+
+
+class SECCurriculum:
+    """Self-Evolving Curriculum for VERL integration.
+    
+    Implements SEC paper algorithm: Multi-Armed Bandit with TD(0) Q-value updates.
+    """
+    
+    def __init__(self, alpha: float = 0.3, tau: float = 0.5):
+        """Initialize SEC curriculum.
+        
+        Args:
+            alpha: TD(0) learning rate (SEC paper: 0.3)
+            tau: Softmax temperature (SEC paper: 0.5)
+        """
+        self.num_arms = 12  # SEC paper: 4 skills × 3 difficulties
+        self.alpha = alpha
+        self.tau = tau
+        self.q_values = np.zeros(self.num_arms)
+        self.arm_counts = np.zeros(self.num_arms)
+        
+    def select_arm(self) -> int:
+        """Select arm using softmax with temperature (SEC paper method)."""
+        q_scaled = self.q_values / self.tau
+        q_max = np.max(q_scaled)
+        exp_q = np.exp(q_scaled - q_max)
+        probs = exp_q / np.sum(exp_q)
+        arm = np.random.choice(self.num_arms, p=probs)
+        self.arm_counts[arm] += 1
+        return arm
+    
+    def update_q_values(self, arm: int, learning_gain: float):
+        """Update Q-values using TD(0) (SEC paper Equation 2)."""
+        self.q_values[arm] += self.alpha * (learning_gain - self.q_values[arm])
+    
+    def get_metrics(self) -> dict:
+        """Get curriculum metrics for logging."""
+        return {
+            "sec_curriculum/max_q": float(np.max(self.q_values)),
+            "sec_curriculum/min_q": float(np.min(self.q_values)),
+            "sec_curriculum/q_std": float(np.std(self.q_values)),
+        }
