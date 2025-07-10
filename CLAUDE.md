@@ -1,170 +1,189 @@
-# CLAUDE.md
+# Arc Failure Taxonomy Data Architecture Rules
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+*Engineering guidelines for implementing production-grade code*
 
-## Project Overview
+## Repository-First Development
 
-verl is a sophisticated Reinforcement Learning library for Large Language Models (LLMs) that implements the HybridFlow framework for efficient RLHF (Reinforcement Learning from Human Feedback) training.
+**MUST DO:**
+- Analyze the entire codebase before implementing any new component
+- Study existing patterns or verl
+- Extend existing abstractions rather than creating new ones
+- Follow established naming conventions and directory structure
+- Reuse existing configuration management and error handling patterns
 
-## Key Development Commands
+**NEVER DO:**
+- Start implementation without understanding existing architecture
+- Create duplicate functionality when reusable components exist
+- Introduce inconsistent patterns or naming conventions
+- Bypass established logging, metrics, or configuration systems
+- Ignore existing database connection or transaction patterns
 
-### Testing
-```bash
-# Run all tests
-python -m pytest tests/
+## Reusability and Modularity
 
-# Run CPU-only unit tests
-python -m pytest tests/unit tests/e2e -m "not gpu"
+**MUST DO:**
+- Design every component as a reusable building block
+- Create clear interfaces with well-defined contracts
+- Build components that work independently and can be composed
+- Use dependency injection for testability and flexibility
+- Document public APIs with clear usage contracts
 
-# Run GPU tests
-python -m pytest tests/unit tests/e2e -m "gpu"
+**NEVER DO:**
+- Write monolithic components that cannot be decomposed
+- Hard-code values that should be configurable
+- Create tight coupling between unrelated modules
+- Mix business logic with infrastructure concerns
+- Build components that assume specific deployment environments
 
-# Run specific test file
-python -m pytest tests/unit/test_specific.py
+## Code Clarity and Explicitness
 
-# Run with coverage
-python -m pytest --cov=verl tests/
-```
+**MUST DO:**
+- Use descriptive, unambiguous names for variables, functions, and classes
+- Write self-documenting code that explains intent clearly
+- Keep functions focused on single responsibilities
+- Make all configuration explicit and externally configurable
+- Handle all error conditions with specific, actionable error types
 
-### Linting and Type Checking
-```bash
-# Format code with yapf
-yapf -i -r verl/
+**NEVER DO:**
+- Use abbreviations, acronyms, or unclear variable names
+- Write complex logic that requires extensive comments to understand
+- Create deeply nested control structures or inheritance hierarchies
+- Use magic numbers, strings, or unexplained constants
+- Implement silent failures or generic exception handling
 
-# Run linter
-ruff check verl/
+## Production-Grade Implementation
 
-# Type checking (if available)
-mypy verl/
-```
+**MUST DO:**
+- Implement comprehensive error handling with specific exception types
+- Add structured logging with appropriate context and correlation IDs
+- Include retry logic with exponential backoff for transient failures
+- Design for graceful degradation and circuit breaker patterns
+- Plan for horizontal scaling and load distribution from day one
+- Implement proper resource cleanup and connection lifecycle management
 
-### Building and Installation
-```bash
-# Install in development mode
-pip install -e .
+**NEVER DO:**
+- Use bare try/catch blocks or swallow exceptions silently
+- Rely on print statements or ad-hoc logging approaches
+- Skip input validation or parameter sanitization
+- Create memory leaks or unbounded resource consumption
+- Build systems that cannot be monitored or debugged in production
+- Implement prototype or temporary solutions in production code
 
-# Install with all dependencies
-pip install -e ".[all]"
+## Zero Technical Debt Policy
 
-# Build documentation
-cd docs && make html
-```
+**MUST DO:**
+- Write complete, production-ready code from the first implementation
+- Include comprehensive tests covering happy path and failure scenarios
+- Design APIs with backward compatibility from the beginning
+- Implement proper schema migration and versioning strategies
+- Document architectural decisions and operational procedures
 
-### Running Examples
-```bash
-# PPO training example
-cd examples/ppo_trainer
-python3 train_ppo.py data.train_data_path=/path/to/data \
-    model.model_path=/path/to/model \
-    data.output_dir=ppo_gsm8k
+**NEVER DO:**
+- Add temporary workarounds or shortcuts with promises to fix later
+- Skip testing or documentation with plans to add them eventually
+- Create quick fixes that require future refactoring
+- Leave unfinished features or commented-out code in the repository
+- Defer performance, security, or scalability considerations
 
-# RLHF data collection
-cd examples/rlhf_data_collection
-python3 data_gen.py
-```
+## Data Architecture Specifics
 
-## Architecture Overview
+**MUST DO:**
+- Design schemas with proper constraints, indexes, and validation rules
+- Implement data lifecycle policies and retention strategies upfront
+- Plan partitioning and sharding strategies for scale
+- Use appropriate data types and enforce referential integrity
+- Design for cross-region replication and disaster recovery scenarios
 
-### Core Components
+**NEVER DO:**
+- Use generic JSONB columns for data that should be properly structured
+- Create tables without primary keys, foreign keys, or proper indexes
+- Mix hot and cold data access patterns in the same storage layer
+- Skip database constraint enforcement or validation
+- Create circular dependencies between data models or services
 
-1. **verl/trainer/** - High-level training orchestration
-   - `main_generation.py` - Text generation during training
-   - `main_trainer.py` - Main PPO training loop
-   - `main_reward.py` - Reward computation
-   - `fsdp_*` - Distributed training implementations
+## API and Interface Design
 
-2. **verl/models/** - Model implementations
-   - Supports HuggingFace, vLLM, SGLang backends
-   - Multi-modal support for vision-language models
+**MUST DO:**
+- Design APIs that maintain backward compatibility by default
+- Use explicit versioning for all public interfaces
+- Implement proper pagination, filtering, and sorting for list operations
+- Return consistent error response formats with actionable messages
+- Add rate limiting and comprehensive request validation
 
-3. **verl/rl/** - RL algorithm implementations
-   - PPO, PPO2, GRPO, DAPO algorithms
-   - Core PPO components in `verl/trainer/ppo/`
+**NEVER DO:**
+- Change existing API signatures without proper deprecation cycles
+- Return different data structures for the same endpoint across versions
+- Expose internal implementation details through public interfaces
+- Skip authentication, authorization, or input validation on public endpoints
+- Create APIs without proper documentation and usage contracts
 
-4. **verl/workers/** - Distributed computing workers
-   - Actor, Critic, Reference policy, Reward model workers
-   - Ray-based distribution in `verl/trainer/ppo/ray_*`
+## Observability and Operations
 
-5. **verl/utils/** - Utility functions
-   - Configuration management using Hydra
-   - Tokenization, padding, data processing utilities
+**MUST DO:**
+- Implement distributed tracing for all cross-service operations
+- Add custom metrics for business-critical flows and SLA monitoring
+- Log structured data with consistent schemas and correlation identifiers
+- Create comprehensive health checks and readiness probes
+- Design systems for zero-downtime deployments and rollbacks
 
-### Key Design Patterns
+**NEVER DO:**
+- Log sensitive data, credentials, or personally identifiable information
+- Create metrics or alerts without clear ownership and escalation procedures
+- Skip performance benchmarking for critical path operations
+- Implement logging that cannot be aggregated, searched, or correlated
+- Deploy systems without proper monitoring, alerting, and operational runbooks
 
-- **HybridFlow**: Efficient data flow between generation and training phases
-- **Worker Pattern**: Separate workers for different model roles (actor, critic, etc.)
-- **Modular Backends**: Pluggable inference engines (vLLM, SGLang)
-- **Config-Driven**: Hydra configs for all major components
+## Security and Compliance
 
-## Adding New Features
+**MUST DO:**
+- Implement defense-in-depth security strategies with multiple layers
+- Use principle of least privilege for all access control decisions
+- Encrypt all data at rest and in transit using industry standards
+- Implement comprehensive audit logging for all sensitive operations
+- Plan for compliance requirements including data retention and deletion
 
-### Adding a New Model
-1. Create model class in `verl/models/`
-2. Register in appropriate registry
-3. Add configuration in `verl/trainer/config/`
-4. Add tests in `tests/unit/`
+**NEVER DO:**
+- Store secrets, credentials, or sensitive configuration in code repositories
+- Skip authentication or authorization for internal service communications
+- Implement custom cryptography or security protocols
+- Log credentials, tokens, API keys, or other sensitive authentication data
+- Create overly permissive access controls or bypass security mechanisms
 
-### Adding a New RL Algorithm
-1. Implement algorithm class in `verl/rl/`
-2. Create corresponding rollout/trainer modules
-3. Add example in `examples/`
-4. Document in `docs/algorithms/`
+## Performance and Scalability
 
-### Performance Optimization
-- Use FSDP for distributed training
-- Enable gradient checkpointing for memory efficiency
-- Configure batch sizes based on GPU memory
-- Use mixed precision training when appropriate
+**MUST DO:**
+- Profile and measure performance before implementing optimizations
+- Design systems for horizontal scaling with stateless components
+- Implement appropriate caching strategies at multiple layers
+- Use connection pooling and efficient resource management patterns
+- Plan capacity requirements and load testing strategies from the beginning
 
-## Code Style Guidelines
+**NEVER DO:**
+- Optimize prematurely without measurement and clear performance targets
+- Create single points of failure or bottlenecks in system architecture
+- Ignore memory usage, garbage collection, or resource utilization patterns
+- Skip load testing and capacity planning for production deployments
+- Create unbounded operations or resource consumption scenarios
 
-- Line length limit: 120 characters (enforced by ruff)
-- No emojis in code or documentation
-- Professional tone for enterprise open-source
-- Follow existing patterns in neighboring files
-- Use type hints where beneficial
+## Implementation Standards
 
-## Code Quality Principles
+**Quality Gates:**
+- All components must be designed for reusability across the system
+- Error handling must be comprehensive with specific exception types
+- Resource management must guarantee cleanup under all conditions
+- Performance characteristics must be measured and documented
+- Security review must be completed for all data handling operations
 
-Write production-ready code that prioritizes clarity, performance, and maintainability. Follow these principles:
+**Review Criteria:**
+- Functional correctness: Solves the stated problem completely
+- Production readiness: Handles production traffic and failure scenarios
+- Maintainability: Can be understood and modified by other engineers
+- Performance: Meets documented latency and throughput requirements
+- Security: Follows established security best practices and compliance requirements
+- Observability: Provides comprehensive monitoring and debugging capabilities
 
-- Favor explicit over implicit behavior
-- Write self-documenting code with clear variable/function names
-- Minimize dependencies and complexity
-- Include error handling and logging for production debugging
-- Optimize for readability by future developers (including yourself)
-- Test critical paths and edge cases
-- Follow existing codebase patterns and conventions
-
-Default to simple, proven solutions over clever optimizations. Every line should serve a clear purpose.
-
-## Testing Best Practices
-
-- Write unit tests for new utilities
-- Use pytest markers for GPU/CPU test separation
-- Mock external dependencies appropriately
-- Test both single-GPU and multi-GPU scenarios
-
-## Common Issues and Solutions
-
-### Memory Issues
-- Reduce batch size or sequence length
-- Enable gradient checkpointing
-- Use FSDP with appropriate sharding strategy
-
-### Distributed Training
-- Ensure Ray is properly initialized
-- Check NCCL environment variables
-- Verify GPU visibility with CUDA_VISIBLE_DEVICES
-
-### Model Loading
-- Verify model path and format compatibility
-- Check tokenizer configuration matches model
-- Ensure correct backend selection (HF vs vLLM)
-
-## Important Configuration Files
-
-- `pyproject.toml` - Project dependencies and build configuration
-- `.github/workflows/` - CI/CD pipeline definitions
-- `examples/*/config/` - Hydra configuration examples
-- `docs/conf.py` - Sphinx documentation configuration
+**Deployment Requirements:**
+- Comprehensive test coverage including failure and edge case scenarios
+- Performance benchmarks meet or exceed production requirements
+- Monitoring, alerting, and operational runbooks are complete
+- Rollback and disaster recovery procedures are tested and documented
+- Security scanning and vulnerability assessment are completed
