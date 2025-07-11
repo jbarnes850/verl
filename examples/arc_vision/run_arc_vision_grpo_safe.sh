@@ -1,6 +1,6 @@
 #!/bin/bash
-# Arc Vision RL Training Script using GRPO
-# This script properly configures VERL with all necessary overrides
+# Arc Vision RL Training Script using GRPO - SAFE VERSION
+# This script uses safer configurations to avoid CUDA memory errors
 
 set -ex
 
@@ -29,7 +29,17 @@ CONFIG_PATH="$BASE_DIR/examples/arc_vision/config"
 # Number of GPUs
 N_GPUS=${N_GPUS:-2}
 
-# Launch VERL PPO training with GRPO algorithm
+# Add debugging for CUDA errors
+export CUDA_LAUNCH_BLOCKING=1
+
+echo "Starting Arc Vision RL training with GRPO (Safe Mode)..."
+echo "Model: ${MODEL_PATH}"
+echo "Train data: ${TRAIN_DATA}"
+echo "Val data: ${VAL_DATA}"
+echo "Tool config: ${TOOL_CONFIG_PATH}"
+echo "Output dir: ${OUTPUT_DIR}"
+
+# Launch VERL PPO training with GRPO algorithm - SAFER SETTINGS
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.gamma=1.0 \
@@ -39,8 +49,8 @@ python3 -m verl.trainer.main_ppo \
     \
     data.train_files="$TRAIN_DATA" \
     data.val_files="$VAL_DATA" \
-    data.train_batch_size=16 \
-    data.val_batch_size=4 \
+    data.train_batch_size=8 \
+    data.val_batch_size=2 \
     data.max_prompt_length=8192 \
     data.max_response_length=512 \
     data.return_raw_chat=True \
@@ -59,32 +69,32 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.warmup_style=cosine \
     actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
     actor_rollout_ref.actor.ppo_epochs=2 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.actor.use_kl_loss=true \
     actor_rollout_ref.actor.kl_loss_coef=0.04 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0.02 \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.fsdp_config.param_offload=True \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.dtype=bfloat16 \
     actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.temperature=0.8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
-    actor_rollout_ref.rollout.enforce_eager=False \
+    actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.free_cache_engine=True \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=6 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG_PATH" \
     actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
     \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=6 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     \
     critic.strategy=fsdp \
@@ -103,8 +113,9 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger="['console']" \
     trainer.project_name=arc_vision_rl \
-    trainer.experiment_name=qwen2.5_vl_3b_screenspot_grpo \
+    trainer.experiment_name=qwen2.5_vl_3b_screenspot_grpo_safe \
     trainer.n_gpus_per_node=$N_GPUS \
     trainer.nnodes=1 \
     trainer.default_local_dir="$OUTPUT_DIR" \
+    trainer.val_before_train=false \
     $@

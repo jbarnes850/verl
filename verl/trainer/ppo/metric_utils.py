@@ -279,6 +279,13 @@ def bootstrap_metric(
         >>> bootstrap_metric(data, 3, reduce_fns)
         [(3.0, 0.5), (4.5, 0.3)]  # Example values
     """
+    # Handle edge cases
+    if not data or subset_size <= 0:
+        return [(0.0, 0.0) for _ in reduce_fns]
+    
+    # Adjust subset_size if it's larger than data
+    subset_size = min(subset_size, len(data))
+    
     np.random.seed(seed)
 
     bootstrap_metric_lsts = [[] for _ in range(len(reduce_fns))]
@@ -286,8 +293,21 @@ def bootstrap_metric(
         bootstrap_idxs = np.random.choice(len(data), size=subset_size, replace=True)
         bootstrap_data = [data[i] for i in bootstrap_idxs]
         for i, reduce_fn in enumerate(reduce_fns):
-            bootstrap_metric_lsts[i].append(reduce_fn(bootstrap_data))
-    return [(np.mean(lst), np.std(lst)) for lst in bootstrap_metric_lsts]
+            try:
+                bootstrap_metric_lsts[i].append(reduce_fn(bootstrap_data))
+            except (ValueError, IndexError):
+                # Skip this iteration if reduce_fn fails
+                continue
+    
+    # Calculate mean and std, handling empty lists
+    results = []
+    for lst in bootstrap_metric_lsts:
+        if lst:
+            results.append((np.mean(lst), np.std(lst)))
+        else:
+            results.append((0.0, 0.0))
+    
+    return results
 
 
 def calc_maj_val(data: list[dict[str, Any]], vote_key: str, val_key: str) -> float:
@@ -407,21 +427,34 @@ def process_validation_metrics(
                     ns.append(n_resps)
 
                     for n in ns:
-                        [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(
-                            data=var_vals_filtered, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
-                        )
-                        metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
-                        metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
+                        # Skip if subset_size is larger than available data
+                        if n > len(var_vals_filtered):
+                            continue
+                        
+                        try:
+                            [(bon_mean, bon_std), (won_mean, won_std)] = bootstrap_metric(
+                                data=var_vals_filtered, subset_size=n, reduce_fns=[np.max, np.min], seed=seed
+                            )
+                            metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = bon_mean, bon_std
+                            metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = won_mean, won_std
+                        except (ValueError, IndexError) as e:
+                            # Handle edge cases gracefully
+                            metric[f"best@{n}/mean"], metric[f"best@{n}/std"] = 0.0, 0.0
+                            metric[f"worst@{n}/mean"], metric[f"worst@{n}/std"] = 0.0, 0.0
                         if var2vals.get("pred", None) is not None:
                             # Create vote_data only for non-None values
                             vote_data = [{"val": val, "pred": pred} for val, pred in zip(var_vals, var2vals["pred"]) if val is not None]
-                            [(maj_n_mean, maj_n_std)] = bootstrap_metric(
-                                data=vote_data,
-                                subset_size=n,
-                                reduce_fns=[partial(calc_maj_val, vote_key="pred", val_key="val")],
-                                seed=seed,
-                            )
-                            metric[f"maj@{n}/mean"], metric[f"maj@{n}/std"] = maj_n_mean, maj_n_std
+                            if vote_data and n <= len(vote_data):
+                                try:
+                                    [(maj_n_mean, maj_n_std)] = bootstrap_metric(
+                                        data=vote_data,
+                                        subset_size=n,
+                                        reduce_fns=[partial(calc_maj_val, vote_key="pred", val_key="val")],
+                                        seed=seed,
+                                    )
+                                    metric[f"maj@{n}/mean"], metric[f"maj@{n}/std"] = maj_n_mean, maj_n_std
+                                except (ValueError, IndexError) as e:
+                                    metric[f"maj@{n}/mean"], metric[f"maj@{n}/std"] = 0.0, 0.0
 
                 data_src2prompt2var2metric[data_source][prompt][var_name] = metric
 

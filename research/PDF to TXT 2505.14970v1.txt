@@ -1,0 +1,1148 @@
+Xiaoyin Chen∗ 1,2 , Jiarui Lu1,2 , Minsu Kim1,3 , Dinghuai Zhang1,4 , Jian Tang1,5
+Alexandre Piché6 , Nicolas Gontier6 ,Yoshua Bengio1,2 , Ehsan Kamalloo6
+1
+Mila – Quebec AI Institute, 2 Université de Montréal
+3
+4
+KAIST, Microsoft Research, 5 HEC Montréal, 6 ServiceNow Research
+xiaoyin.chen@mila.quebec
+
+Abstract
+Reinforcement learning (RL) has proven effective for fine-tuning large language
+models (LLMs), significantly enhancing their reasoning abilities in domains such as
+mathematics and code generation. A crucial factor influencing RL fine-tuning success is the training curriculum: the order in which training problems are presented.
+While random curricula serve as common baselines, they remain suboptimal; manually designed curricula often rely heavily on heuristics, and online filtering methods
+can be computationally prohibitive. To address these limitations, we propose SelfEvolving Curriculum (SEC), an automatic curriculum learning method that learns
+a curriculum policy concurrently with the RL fine-tuning process. Our approach
+formulates curriculum selection as a non-stationary Multi-Armed Bandit problem,
+treating each problem category (e.g., difficulty level or problem type) as an individual arm. We leverage the absolute advantage from policy gradient methods as
+a proxy measure for immediate learning gain. At each training step, the curriculum policy selects categories to maximize this reward signal and is updated using
+the TD(0) method. Across three distinct reasoning domains: planning, inductive
+reasoning, and mathematics, our experiments demonstrate that SEC significantly
+improves models’ reasoning capabilities, enabling better generalization to harder,
+out-of-distribution test problems. Additionally, our approach achieves better skill
+balance when fine-tuning simultaneously on multiple reasoning domains. These
+findings highlight SEC as a promising strategy for RL fine-tuning of LLMs. 2
+
+1
+
+Introduction
+0.4
+
+SEC (Ours)
+Random/No Curriculum
+
+Reinforcement learning (RL) has emerged as a cenReverse Curriculum
+tral technique for fine-tuning large language models
+0.3
+(LLMs) [28, 35, 12], significantly improving their
+0.2
+reasoning capabilities. Recent advances demonstrate
+notable success, particularly in domains where ver0.1
+ifying generation correctness is straightforward [27],
+such as mathematics and code generation. By opti0.0
+mizing LLMs with rewards solely defined by verifi20
+40
+60
+80
+100
+Training Steps
+able outcomes, RL fine-tuning encourages the emergence of complex reasoning behaviors, including self- Figure 1: Curriculum matters. A delibercorrection and back-tracking strategies [25, 62, 16], ately poor (reverse) curriculum severely limits
+that substantially enhance reasoning performance.
+RL fine-tuning performance. Our proposed
+A critical factor influencing the effectiveness of RL Self-Evolving Curriculum (SEC) significantly
+fine-tuning is the training curriculum [7], i.e., the or- outperforms the standard random curriculum.
+See Sec. 3.1 for details.
+∗
+Test Score
+
+arXiv:2505.14970v1 [cs.AI] 20 May 2025
+
+Self-Evolving Curriculum for LLM Reasoning
+
+2
+
+Work done while at ServiceNow Research.
+Our code will be publicly released soon.
+
+Preprint. Under review.
+
+Curriculum Policy
+
+Training
+Data
+4
+
+1
+
+Curriculum Reward
+
+Training Batch
+
+Expected
+Learning Gain
+3
+
+RL with Verifiable
+Rewards
+
+LLM Policy
+
+2
+
+RL Step
+
+Rewards Per Category
+
+Figure 2: Overview of Self-Evolving Curriculum (SEC). SEC dynamically adjusts the training
+curriculum according to the model’s current capabilities. During preprocessing, training data is
+partitioned into distinct categories (indicated by colors), e.g., by difficulty level or problem type. At
+each RL fine-tuning step: (1) The curriculum policy samples a training batch based on categories’
+expected learning gains; (2) The LLM policy is updated using the sampled batch and the chosen RL
+algorithm; (3) Rewards for curriculum categories are computed using advantage values estimated by
+the RL algorithm; (4) The curriculum policy is updated accordingly, refining future data selection.
+der in which training data is presented. Since online RL inherently depends on the policy model itself
+to produce high-quality training trajectories, aligning the curriculum with the model’s current learning
+progress is critical. Ideally, such an alignment enables the model to continually encounter problems
+that yield maximal learning outcomes [42, 29, 20]. To illustrate this point concretely, we conduct a
+controlled experiment using the Countdown game,3 deliberately employing a suboptimal (reverse)
+curriculum, in which problems are arranged from hard to easy. As shown in Figure 1, the resulting
+model performs poorly on the test set and exhibits minimal generalization to more challenging outof-distribution (OOD) problems. In contrast, when trained with a baseline random curriculum, where
+problems of varying difficulty are drawn uniformly at random, the model demonstrates significantly
+improved generalization and overall task performance.
+Although random curriculum serves as a reasonable baseline, it naturally raises the question: Can
+we design more effective curriculum strategies? Curriculum learning [7] addresses precisely this
+challenge by seeking to optimize the sequencing of training tasks, thereby enhancing learning
+efficiency and efficacy. Recent approaches to curriculum learning for RL fine-tuning typically involve
+either manually crafted curricula designed upfront [50, 47, 57] or dynamic online filtering based
+on on-policy samples [63, 3]. However, manually designed curricula rely heavily on heuristics,
+demanding human intervention for new models or tasks; conversely, online filtering methods incur
+substantial computational overhead due to the continuous generation of additional on-policy samples.
+In this paper, we propose Self-Evolving Curriculum (SEC) (Figure 2), an automatic curriculum
+learning [39] approach for RL fine-tuning of LLMs. Our method adaptively learns a curriculum policy
+concurrently with the RL fine-tuning process, formulating curriculum selection as a non-stationary
+Multi-Armed Bandit (MAB) problem [51, 49, 31]. Each curriculum category (e.g., difficulty level or
+problem type) is treated as an individual arm, and the curriculum policy aims to select the arm that
+maximizes the learning outcomes. Specifically, we operationalize the concept of learning outcomes
+using the gradient norm, noting that, in policy gradient methods, the gradient norm is weighted by
+the absolute value of the advantage function. Leveraging this observation, we define the absolute
+advantage as the reward for each arm. At each RL training step, the curriculum is sampled according
+3
+
+A puzzle game where players combine a given set of numbers using basic arithmetic operations to reach a
+target number.
+
+2
+
+to the current MAB policy, which is subsequently updated on-the-fly using the reward obtained from
+the current training step via the TD(0) method [48].
+Our experiments demonstrate that SEC significantly improves model reasoning capabilities across
+three distinct domains: planning, inductive reasoning, and mathematics, particularly improving generalization to challenging out-of-distribution problems. Compared to the standard random curriculum,
+SEC achieves substantial relative improvements, such as 13% on Countdown, 21% on Zebra puzzles,
+22% on ARC-1D, and up to 33% on the AIME24 dataset. When fine-tuned simultaneously across
+multiple reasoning domains, SEC effectively balances performance across tasks, underscoring its
+strength as an automatic curriculum learning strategy for RL fine-tuning of LLMs.
+
+2
+
+Method
+
+In the context of RL fine-tuning, at each training step t, the curriculum policy selects a subset Dt ⊆ D
+from the training problem set D to be provided to the LLM. In our work, we consider scenarios
+where the training problems can be categorized into N distinct categories. This assumption simplifies
+the curriculum optimization problem into learning an expected return Qt (c) that maps category c
+to a real-valued score (Sec. 2.1). The training batch is then constructed by first sampling categories
+according to the curriculum policy, followed by sampling problems uniformly within the categories.
+The goal of the curriculum policy is to maximize the LLM’s final task performance. However, directly
+evaluating such performance would require completing the entire RL fine-tuning process, while the
+curriculum policy is better to be updated along with the training steps. To resolve this, we introduce a
+locally measurable reward as a proxy objective for guiding the curriculum policy (Sec. 2.2).
+2.1
+
+Curriculum Selection as Multi-Armed Bandit
+
+Training datasets used for reasoning tasks can often be naturally decomposed into distinct categories.
+For example, if the dataset spans various reasoning domains, such as mathematics, coding, and
+planning, these domains naturally form distinct categories. When the dataset is homogeneous in task
+type or domain, a curriculum can still be constructed by categorizing examples based on in-domain
+levels, such as difficulty. For instance, the MATH dataset [17] categorizes problems into five distinct
+difficulty levels based on the guidelines provided by Art of Problem Solving (AoPS). Furthermore, in
+the absence of explicit difficulty annotations, problem difficulty can be estimated by either using the
+empirical accuracy of the training LLM or prompting an expert LLM in an additional preprocessing
+step, as demonstrated by Shi et al. [46].
+Motivated by these considerations, we assume that, particularly for reasoning-focused datasets,
+training problems can be partitioned into N distinct categories C = {c1 , c2 , . . . , cN }. Conceptually,
+the curriculum policy optimization problem can then be viewed as a partially observable Markov
+decision process (POMDP): the state corresponds to the current LLM policy, actions correspond
+to curriculum selection, and rewards are defined by observable performance metrics, such as the
+on-policy performance associated with the selected curriculum.
+This POMDP formulation closely resembles a non-stationary MAB problem, where each arm
+represents a problem category ci , and the objective is to learn the expected return Qt (c) associated
+with selecting category c at training step t. Importantly, the MAB in this context is non-stationary:
+the expected reward distribution for each arm shifts as the LLM policy is updated over the course of
+training. To address this well-studied non-stationary bandit problem [51, 49], we leverage the classic
+TD(0) method [48] to iteratively update Qt (c):
+Qt+1 (c) = αrt (c) + (1 − α)Qt (c),
+
+(1)
+
+where α is the learning rate, Q0 (c) = 0 initializes the scores to zero, and rt (c) denotes the reward
+defined in the next section. Note that this is also known as the Exponential Moving Average. The
+curriculum policy can then be simply defined over Qt (c), as elaborated in Sec. 2.3.
+2.2
+
+Measuring Learning Outcomes with Absolute Advantage
+
+An ideal curriculum should maximize the LLM’s final performance on the test data after an entire
+training episode. However, directly measuring this objective requires completing a full RL finetuning cycle. Although evaluating intermediate checkpoints can partially mitigate this issue, frequent
+3
+
+evaluations are computationally expensive. To overcome this challenge, we introduce a proxy
+objective that can be efficiently computed locally at each training step.
+An intuitive choice for such a proxy objective is to prioritize training data that maximizes the model’s
+immediate learning outcomes [42, 29, 20], i.e., data that induces large parameter updates. Practically,
+this can be quantified by measuring the gradient norm of the loss function with respect to the selected
+training data. Specifically, consider a policy gradient algorithm that optimizes the LLM policy by
+minimizing the following loss function:
+
+
+bt
+LPG (θ) = − E(st ,at )∼πθ log πθ (at | st ) A
+(2)
+bt denotes the advantage value. Then, the per-step (st , at )
+where πθ denotes the LLM policy and A
+gradient norm is:
+h
+i
+bt
+bt |∥∇θ log πθ (at | st ) ∥2
+∥∇θ LPG (θ, st , at )∥2 = E(st ,at )∼πθ ∇θ log πθ (at | st ) A
+≈ |A
+2
+
+bt |. We
+We observe that the gradient magnitude is weighted by the absolute value of the advantage |A
+bt |:
+therefore approximate the learning gain of a curriculum c by the batch-wise expectation of |A
+bt |
+r(c) = E(st ,at )∼πθ (xi ),xi ∼c |A
+
+(3)
+
+In other words, the reward for curriculum c at each training step is computed as the average absolute
+advantage across all rollouts associated with the problems drawn from curriculum category c.
+Interpreting absolute advantage in RL with Verifiable Rewards. Recent works on RL finetuning for reasoning tasks frequently employ a binary correctness reward (0 for incorrect, 1 for
+correct) with the Group Relative Policy Optimization (GRPO) algorithm [44, 25, 12, 30, 56], a setting
+known as RL with Verifiable Rewards [27]. Here, we show that under this common setting, the
+expected absolute advantage, as formalized in Equation 3, is maximized when the expected binary
+reward is 0.5. This means that the highest learning gain occurs when the problem is neither too
+easy nor too hard for the current model. Prioritizing training on problems with such difficulty aligns
+naturally with concepts from educational psychology, particularly the Zone of Proximal Development
+theory [54, 8], and connects our approach to broader literature in curriculum learning [14, 15, 52, 3].
+Concretely, the GRPO algorithm estimates the advantage by sampling n rollouts from the same
+bt,i = r̃i = ri −mean(r) , where ri is the
+problem. The advantage of the i-th rollout is computed as: A
+std(r)
+binary reward of the i-th rollout, and mean(r) and std(r) denote the mean and standard deviation
+of the rewards over all n rollouts. Since the reward
+is binary, it can be modeled as a Bernoulli
+p
+distribution; thus, mean(r) = p and std(r) = p(1 − p), where p denotes the success rate. The
+expected absolute advantage can then be expressed as:
+"
+#
+r
+−
+p
+i
+bt,i |] = E[|r̃i |] = E p
+E[|A
+(4)
+p(1 − p)
+Because ri is Bernoulli, there are only two possible values:
+
+1−p
+
+
+p
+p(1 − p)
+r̃i =
+ p −p
+
+
+p(1 − p)
+
+with probability p,
+(5)
+with probability 1 − p.
+
+Hence, the expected absolute advantage of the problem is
+p
+
+
+1−p
+p
+2 p(1 − p)
+E |r̃i | = p p
++ (1 − p) p
+=p
+= 2 p(1 − p).
+(6)
+p(1 − p)
+p(1 − p)
+p(1 − p)
+p
+We can see that the function g(p) = 2 p(1 − p) is symmetric around p = 0.5 and strictly concave
+on the interval [0, 1], reaching its maximum at p = 0.5. This derivation shows that maximizing the
+expected absolute advantage is equivalent to prioritizing problems at a success rate of 0.5.
+4
+
+Algorithm 1 SEC: RL Fine-tuning with Self-evolving Curriculum
+Require: Training set D partitioned into categories C = {c1 , . . . , cN }; LLM policy πθ with parameters θ; Learning rate α (for Q updates); Temperature τ ; Batch size B; Total training steps T ;
+Reward function R; RL algorithm A
+1: Initialize Q0 (c) ← 0 ∀ c ∈ C
+2: for t ← 0 to T − 1 do
+3:
+Bt ← ∅
+4:
+while |Bt | < B do
+
+5:
+Sample category c ∼ Softmax Qt (c)/τ
+6:
+Sample problem x uniformly from category c
+7:
+Bt ← Bt ∪ {x}
+8:
+end while
+9:
+Run πθ on each x ∈ Bt to generate rollouts T and compute rewards r with R
+b and update πθ with A(πθ , T , r)
+10:
+Estimate advantages A
+11:
+for all c ∈ C do
+12:
+Bc ← { x ∈ Bt | x belongs to category c }
+1 PTj b
+1 P
+At,j
+13:
+rt (c) ←
+j:xj ∈Bc
+|Bc |
+Tj t
+14:
+Qt+1 (c) ← α rt (c) + (1 − α) Qt (c)
+15:
+end for
+16: end for
+17: return Fine-tuned LLM πθ
+
+Remarks: The derivation above aims to provide a concrete analysis of our proposed objective under
+a common RL Fine-tuning setting, as well as to offer intuitive insights into its general behavior.
+However, this does not imply that our method is limited to this specific scenario. Indeed, our
+experiments empirically demonstrate that SEC also achieves strong performance when applied with
+non-binary reward functions (Sec. 3.2) and alternative RL algorithms (Sec. 3.4).
+2.3
+
+Self-evolving Curriculum for RL Fine-tuning
+
+At each RL training step, a batch of problems is generated as follows. First, categories are sampled
+Qt (c)/τ
+according to a Boltzmann distribution defined by the current values of Qt (c): p(c) = PNe eQt (ci )/τ ,
+i=1
+where τ is the temperature parameter controlling the exploration-exploitation trade-off. Next, problems are uniformly sampled from the selected categories. This process is repeated until the desired
+batch size is reached. Sampling from the Boltzmann distribution naturally balances exploration and
+exploitation in curriculum selection.
+The resulting batch is then used to update the LLM policy. After the policy update at each step, we
+compute the reward r(c) for each sampled category c and update the corresponding Qt (c) values
+using Eq. 1. The complete procedure of SEC is summarized in Algorithm 1.
+
+3
+
+Experiments
+
+This section presents experiments evaluating SEC across three reasoning domains: planning, inductive reasoning, and mathematics. We additionally investigate SEC’s effectiveness with different
+curriculum categories and alternative RL algorithms.
+3.1
+
+Experimental Setup
+
+We conduct our experiments using the open-weight Qwen2.5 models [61]: Qwen2.5-3B and Qwen2.57B. For RL fine-tuning on reasoning tasks, we employ the widely-used GRPO algorithm [44, 12]. We
+report average pass@1 accuracy from the best checkpoint, calculated over 8 independent generations
+per problem. Additional training and evaluation details are provided in Appendix B. Prompts and
+data examples for all tasks are provided in Appendix C.
+5
+
+Table 1: Evaluation across reasoning tasks and curriculum methods. Accuracy is measured
+by averaging pass@1 over 8 independent generations per problem. In-distribution (ID) results are
+averaged over test problems sampled from the same three difficulty levels used in training. The
+best-performing curriculum strategy for each dataset and model size is shown in bold, and the
+second-best is underlined. SEC consistently achieves strong performance across tasks, particularly
+improving generalization on challenging OOD test problems.
+Task
+
+Qwen2.5 3B
+
+Split
+
+Qwen2.5 7B
+
+Random
+
+Ordered
+
+SEC (Ours)
+
+Random
+
+Ordered
+
+SEC (Ours)
+
+Countdown
+
+ID
+OOD
+
+0.859
+0.479
+
+0.551
+0.321
+
+0.866
+0.542
+
+0.858
+0.566
+
+0.820
+0.442
+
+0.872
+0.555
+
+Zebra
+
+ID
+OOD
+
+0.517
+0.285
+
+0.534
+0.329
+
+0.547
+0.345
+
+0.573
+0.321
+
+0.572
+0.311
+
+0.587
+0.355
+
+ARC-1D
+
+ID
+OOD
+
+0.501
+0.313
+
+0.476
+0.363
+
+0.500
+0.381
+
+0.512
+0.436
+
+0.526
+0.428
+
+0.514
+0.418
+
+Math
+
+MATH500
+AMC22-23
+AIME24
+
+0.668
+0.345
+0.075
+
+0.672
+0.352
+0.054
+
+0.672
+0.351
+0.100
+
+0.774
+0.486
+0.138
+
+0.759
+0.477
+0.150
+
+0.761
+0.511
+0.175
+
+Our experiments cover three reasoning domains that require different abilities: (i) Planning, which
+requires look-ahead search and backtracking; (ii) Inductive reasoning, which involves learning
+general rules from observations and applying them to unseen scenarios; and (iii) Mathematics, which
+demands multi-step logical deduction and systematic problem solving.
+Planning. For planning tasks, we consider two popular puzzle problems: (i) Countdown, where the
+goal is to use basic arithmetic operations to reach a target number from a given set of 3–6 integers.
+In this puzzle, we control the task difficulty by increasing the number of given integers. (ii) Zebra
+Puzzles, a classic logic puzzle involving 3–6 entities (e.g., houses) each with 3-6 properties (e.g.,
+color). Given a set of textual clues (constraints), the goal is to correctly assign each property to each
+entity. Here, we control the task difficulty by increasing the number of entities and properties.
+Inductive reasoning. We adopt the 1D variant of the Abstraction and Reasoning Corpus (ARC) [9,
+60] for inductive reasoning. Each puzzle instance consists of strings of lengths 10, 20, 30, or 40
+(with greater length corresponding to increased difficulty), which are defined over integers. Three
+input-output examples illustrating an underlying rule are provided, and the LLM is tested on an
+unseen case requiring generalization.
+For the above three reasoning tasks (Countdown, Zebra, and ARC), we generate problems using the
+framework provided by Open-Thought [34]. Specifically, our training data consists of the three easiest
+difficulty levels, and the most difficult level is reserved as an out-of-distribution (OOD) evaluation
+set. For each difficulty level, we sample 10,000 problems for training and 200 held-out samples for
+evaluation. During RL fine-tuning, we assign rewards of 1 for correct problems, 0.1 for incorrect
+answers but with correct formatting, and 0 otherwise.
+Mathematics. We train LLMs on the training split of the MATH dataset [17], which comprises
+problems categorized into five difficulty levels, from 1 (easiest) to 5 (hardest), as specified in the
+dataset annotations. Unlike the previous three tasks, the training data for mathematics is imbalanced
+across these difficulty levels (Figure S1). For this task, we use a binary reward (1 for correct and 0
+otherwise), without assigning a partial reward for a correct format. The models are subsequently
+evaluated on the MATH500, AMC22-23, and AIME24 datasets.
+3.2
+
+Main Results
+
+First, we evaluate the effectiveness of SEC using problem difficulty as the curriculum category, i.e.,
+each difficulty level corresponds to an arm in the MAB framework. We compare SEC against two
+commonly used curriculum strategies: (1) Random/No Curriculum, where training samples are drawn
+uniformly across all difficulty levels following the original data distribution, corresponding to the
+6
+
+Zebra
+
+ARC-1D
+
+MATH
+
+Qwen2.5-7B
+
+Difficulty
+
+Qwen2.5-3B
+
+Countdown
+
+Training Steps
+
+Figure 3: Average sample difficulty over training steps. SEC adaptively adjusts task difficulty
+during RL fine-tuning. Blue curves represent the sampled difficulty, smoothed using a moving average,
+while the green dashed line indicates the mean difficulty of the dataset. Across all benchmarks
+(columns) and model sizes (top: Qwen2.5-3B, bottom, Qwen2.5-7B), SEC initially selects easier
+problems and progressively introduces more challenging ones as training proceeds, effectively
+aligning difficulty with model improvement.
+
+conventional "no-curriculum" approach, and (2) Difficulty-Ordered Curriculum, where problems are
+sequentially presented from easiest to hardest. Hyperparameters for SEC across all experimental
+settings are detailed in Appendix B.
+Our results, summarized in Table 1, demonstrate clear advantages of SEC across tasks and models. For the smaller Qwen2.5-3B model, SEC consistently achieves substantial improvements on
+harder, out-of-distribution (OOD) test sets. Specifically, on Countdown, SEC significantly improves
+OOD accuracy by approximately 13% relative (0.48 → 0.54) compared to the random baseline, and
+by approximately 69% relative (0.32 → 0.54) compared to the difficulty-ordered baseline. Similarly, on Zebra, SEC attains a relative improvement of approximately 21% over random (0.29 →
+0.35). In mathematics, SEC markedly improves performance on the challenging AIME dataset by
+approximately 33% relative compared to the random baseline (0.075 → 0.10).
+For the larger Qwen2.5-7B model, SEC performance is competitive but more similar to the random
+curriculum on tasks like Countdown and ARC. This outcome aligns with expectations, as stronger
+base models may already possess sufficient reasoning capabilities to tackle harder problems, thus
+rendering explicit curriculum guidance less critical. Nevertheless, on more challenging tasks such as
+Zebra and mathematics, SEC continues to show clear improvements. Specifically, the OOD accuracy
+on Zebra improves by approximately 11% relative (0.32 → 0.36) over the random baseline. On
+the challenging AIME problmes, SEC achieves a 27% relative gain (0.14 → 0.18). The consistent
+improvements observed in these more challenging domains, together with the robust gains in the 3B
+model, highlight SEC’s effectiveness in improving the model generalization.
+Finally, the difficulty-ordered curriculum often yields suboptimal performance, likely due to its fixed
+difficulty schedule, which does not dynamically adapt to the model’s current performance. As a
+result, models may spend excessive training time on easy problems, limiting exposure to harder ones
+from which models could potentially learn more. These results further underscore the necessity of
+adaptive, online curriculum strategies like SEC, which continuously align problem selection with the
+model’s current learning state.
+
+Curriculum analysis. Figure 3 illustrates how SEC adaptively adjusts training difficulty across
+tasks and models. For each task and model, the sampled difficulty (blue curves) initially starts below
+or around the dataset mean difficulty (green dashed line), indicating SEC’s initial emphasis on easier
+problems to facilitate early-stage learning. As training progresses, SEC gradually increases the
+difficulty of selected problems, aligning the training complexity with the improving capabilities of
+the model. Notably, SEC consistently selects harder problems for the stronger Qwen2.5-7B model
+compared to the smaller 3B model, further confirming SEC’s ability to effectively adapt its curriculum
+to the model’s learning capacity. This adaptive pattern across tasks and models highlights SEC’s
+strength in dynamically adjusting problem difficulty to maximize learning outcomes.
+7
+
+Split
+
+Random
+
+SEC-2D
+
+Countdown
+
+ID
+OOD
+
+0.837
+0.418
+
+0.839
+0.428
+
+Zebra
+
+ID
+OOD
+
+0.513
+0.254
+
+0.539
+0.312
+
+ARC
+
+ID
+OOD
+
+0.380
+0.251
+
+0.418
+0.327
+
+Test Score (Moving Averge)
+
+Task
+
+0.3
+
+SEC (Ours)
+Random Curriculum
+
+0.2
+0.1
+0.0
+100
+
+200
+
+300
+
+400
+
+500
+
+600
+
+700
+
+Figure 4: Performance comparison when training on multiple tasks. Left: Test accuracy of
+Qwen2.5-3B on ID and OOD splits. SEC-2D is implemented by defining an arm for each combination
+of problem type and difficulty level. SEC-2D consistently achieves higher accuracy, showing
+improved generalization compared to a random curriculum across tasks. Right: Countdown OOD
+accuracy vs. training steps, smoothed by a moving average. The random curriculum’s performance
+collapses mid-training, highlighting its inability to effectively balance multiple tasks. In contrast,
+SEC-2D maintains stable performance throughout training.
+3.3
+
+SEC with Multiple Curriculum Categories
+
+In this section, we demonstrate that SEC seamlessly supports drawing from multiple and diverse
+curriculum categories at the same time. A common scenario in RL fine-tuning involves optimizing a
+model’s performance across multiple reasoning domains. To evaluate SEC in such a multi-task setting,
+we combine the training datasets from Countdown, Zebra, and ARC to create a mixed training set
+comprising multiple types of reasoning problems, and conduct RL fine-tuning using the Qwen2.5-3B
+model. The goal here is to achieve a strong overall performance across all reasoning tasks.
+Our MAB-based curriculum framework is agnostic to the semantic meaning of the curriculum
+categories, thus allowing categories to be defined arbitrarily. In this experiment, we define one arm
+for each unique combination of 3 problem types and 3 difficulty levels, resulting in a total of 9 distinct
+arms. We denote this variant as SEC-2D.
+Figure 4 presents results evaluating SEC-2D when training simultaneously on multiple reasoning
+tasks. The table (left) demonstrates that SEC-2D consistently outperforms the random curriculum
+across all three reasoning tasks. The learning curve (right) provides a detailed view of OOD accuracy
+on Countdown as training progresses. Initially, both curricula show rapid improvement; however, the
+random curriculum exhibits a significant performance collapse midway through training, highlighting
+its inability to effectively balance multi-task learning. In contrast, SEC-2D maintains stable, robust
+performance, underscoring its strength in adaptively balancing multiple learning objectives.
+3.4
+
+SEC with Alternative RL Algorithms
+
+4
+
+Related Works
+
+Table 2: SEC with alternative RL algorithms on Countdown. SEC improves
+While our main experiments employ the GRPO algoRL fine-tuning performance with differrithm, we additionally evaluate SEC with other widely
+ent RL algorithms (PPO, RLOO), comused RL methods, specifically Proximal Policy Optipared to a random curriculum.
+mization (PPO) [43] and REINFORCE Leave-One-Out
+(RLOO) [24]. Table 2 presents results on the Countdown
+RL Method Split
+Random
+SEC
+task with Qwen2.5-3B, comparing SEC to the random
+ID
+0.621
+0.750
+curriculum under these two algorithms. Across both PPO
+PPO
+OOD
+0.159
+0.224
+and RLOO, SEC consistently improves performance on
+ID and OOD evaluation splits, demonstrating that it is
+ID
+0.821
+0.859
+RLOO
+effective beyond a single RL algorithm.
+OOD
+0.465
+0.494
+
+RL fine-tuning for language models. Language models (LMs) can be naturally viewed as sequential decision-making policies, generating tokens conditioned on partial text states until reaching
+terminal outputs. Typically, reward signals are sparse and episodic, assigned only after the full
+generation, an approach termed Outcome Reward Models (ORM) [11]. Some recent studies introduce Process Reward Models (PRM), assigning intermediate rewards during generation to facilitate
+8
+
+local credit assignment [28, 53]. Leveraging this Markov Decision Process (MDP) framing, RL
+fine-tuning has demonstrated success across multiple domains, including aligning LMs with human
+preferences (RLHF) [10, 65, 4, 36], enhancing mathematical reasoning via exact-match rewards [44],
+and self-training with internal LM distributions (e.g., Self-taught Reasoner, STaR) [64]. Recently,
+Reinforcement Learning with Verifiable Rewards (RLVR) [12, 27] has emerged as a promising
+paradigm for improving the reasoning abilities of LMs.
+RL methods tailored to these MDP formulations have also played a central role. Policy-gradient
+methods, including REINFORCE variants (e.g., RLOO) [58, 24, 1] and Proximal Policy Optimization
+(PPO) approaches [43, 21, 44], are widely adopted due to their relative stability. Alternatively,
+off-policy and value-based algorithms such as Directed Preference Optimization (DPO) [41, 32]
+and Generative Flow Networks (GFlowNets) [6, 19, 18] provide advantages in sample efficiency,
+diversity, and asynchronous training [33, 5], although they may not always match the task-specific
+reward maximization capabilities of on-policy methods, instead prioritizing improved diversity.
+Curriculum learning. Curriculum learning was introduced by Bengio et al. [7] and later refined as
+self-paced learning [26], showing that organizing examples from easy to hard smooths non-convex
+optimization and improves generalization. In RL, curricula mitigate sparse rewards and exploration
+hurdles: reverse-curriculum generation grows start states outward from the goal [14], Teacher-Student
+Curriculum Learning (TSCL) [31] also used a non-stationary MAB framework to maximize measured
+learning progress, defined as improvements in task performance, methods such as POET, ACCEL,
+and PAIRED co-evolve tasks with agents [55, 38, 13], and Kim et al. [22] proposed an adaptive
+teacher that dynamically adjusts curricula for multi-modal amortized sampling.
+Only recently have similar curriculum learning ideas begun influencing RL fine-tuning of language
+models. R3 applies reverse curricula specifically to chain-of-thought reasoning, progressively revealing longer reasoning sequences conditioned on gold demonstrations [59]. Qi et al. [40] proposed
+WEBRL, a self-evolving online curriculum RL framework designed to train LM-based web agents by
+prompting another LLM to autonomously generate new tasks based on previous failures.
+Concurrently, two noteworthy studies have explored automatic curriculum learning for RL finetuning: Bae et al. [3] propose online filtering of training problems by repeatedly generating solutions
+to estimate their difficulty, incurring substantial computational overhead; AdaRFT [46] adaptively
+adjusts curriculum difficulty based on the model’s recent reward signals but relies on explicit difficultylevel ordering, limiting its generalizability to other curriculum categories.
+In contrast to these methods, our SEC approach leverages a general, non-stationary MAB formulation to dynamically adjust the curriculum, making it broadly applicable across diverse curriculum
+categories, arbitrary reward scales, and various RL algorithms.
+
+5
+
+Conclusion
+
+In this paper, we introduced Self-Evolving Curriculum (SEC), an automatic curriculum learning
+framework tailored for RL fine-tuning of LLMs. SEC formulates adaptive curriculum selection as a
+non-stationary Multi-Armed Bandit problem, dynamically adjusting problem difficulty according
+to the model’s evolving capability. Extensive experiments across diverse reasoning tasks, including planning, inductive reasoning, and mathematics, demonstrate that SEC consistently improves
+generalization and effectively balances learning across multiple reasoning domains simultaneously.
+Our framework consists of three major components: curriculum rewards, sampling methods, and
+update rules. In this paper, SEC employs absolute advantage as the curriculum reward, a Boltzmann
+distribution for sampling, and a TD(0) update method. The generalization of these components
+can be explored for future work. For instance, one might incorporate uncertainty measures into
+the curriculum selection by leveraging approaches such as Upper Confidence Bound (UCB) [2] or
+Thompson sampling [51].
+Limitations. While SEC demonstrates consistent effectiveness across diverse reasoning tasks, it has
+some limitations. Our method currently relies on predefined curriculum categories; its effectiveness
+with automatically inferred or less clearly defined categories remains unexplored. Additionally, SEC
+introduces extra hyperparameters (e.g., temperature, learning rate) that require tuning. Future work
+may explore more flexible curriculum definitions, such as clustering problems based on embeddings
+or using lightweight models (e.g., linear regression) to directly estimate curriculum rewards.
+9
+
+Acknowledgments and Disclosure of Funding
+We thank Dzmitry Bahdanau and Nicolas Chapados for insightful discussions and assistance with
+this project. The authors acknowledge funding from CIFAR, NSERC and the Future of Life Institute.
+Minsu Kim was supported by KAIST Jang Yeong Sil Fellowship.
+
+References
+[1] Arash Ahmadian, Chris Cremer, Matthias Gallé, Marzieh Fadaee, Julia Kreutzer, Olivier
+Pietquin, Ahmet Üstün, and Sara Hooker. Back to basics: Revisiting reinforce style optimization
+for learning from human feedback in llms. arXiv preprint arXiv:2402.14740, 2024.
+[2] Peter Auer. Using confidence bounds for exploitation-exploration trade-offs. Journal of Machine
+Learning Research, 3(Nov):397–422, 2002.
+[3] Sanghwan Bae, Jiwoo Hong, Min Young Lee, Hanbyul Kim, JeongYeon Nam, and Donghyun
+Kwak. Online difficulty filtering for reasoning oriented reinforcement learning. arXiv preprint
+arXiv: 2504.03380, 2025.
+[4] Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda Askell, Anna Chen, Nova DasSarma,
+Dawn Drain, Stanislav Fort, Deep Ganguli, Tom Henighan, Nicholas Joseph, Saurav Kadavath,
+Jackson Kernion, Tom Conerly, Sheer El-Showk, Nelson Elhage, Zac Hatfield-Dodds, Danny
+Hernandez, Tristan Hume, Scott Johnston, Shauna Kravec, Liane Lovitt, Neel Nanda, Catherine
+Olsson, Dario Amodei, Tom Brown, Jack Clark, Sam McCandlish, Chris Olah, Ben Mann,
+and Jared Kaplan. Training a helpful and harmless assistant with reinforcement learning from
+human feedback. arXiv preprint arXiv: 2204.05862, 2022.
+[5] Brian R Bartoldson, Siddarth Venkatraman, James Diffenderfer, Moksh Jain, Tal Ben-Nun,
+Seanie Lee, Minsu Kim, Johan Obando-Ceron, Yoshua Bengio, and Bhavya Kailkhura. Trajectory balance with asynchrony: Decoupling exploration and learning for fast, scalable llm
+post-training. arXiv preprint arXiv:2503.18929, 2025.
+[6] Emmanuel Bengio, Moksh Jain, Maksym Korablyov, Doina Precup, and Yoshua Bengio. Flow
+network based generative models for non-iterative diverse candidate generation. Advances in
+Neural Information Processing Systems, 34:27381–27394, 2021.
+[7] Yoshua Bengio, Jérôme Louradour, Ronan Collobert, and Jason Weston. Curriculum learning. In Proceedings of the 26th Annual International Conference on Machine Learning,
+ICML ’09, page 41–48, New York, NY, USA, 2009. Association for Computing Machinery.
+ISBN 9781605585161. doi: 10.1145/1553374.1553380. URL https://doi.org/10.1145/
+1553374.1553380.
+[8] Seth Chaiklin et al. The zone of proximal development in vygotsky’s analysis of learning and
+instruction. Vygotsky’s educational theory in cultural context, 1(2):39–64, 2003.
+[9] François Chollet. On the measure of intelligence. arXiv preprint arXiv:1911.01547, 2019.
+[10] Paul Christiano, Jan Leike, Tom B. Brown, Miljan Martic, Shane Legg, and Dario Amodei.
+Deep reinforcement learning from human preferences. arXiv preprint arXiv: 1706.03741, 2017.
+[11] Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser,
+Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to
+solve math word problems. arXiv preprint arXiv:2110.14168, 2021.
+[12] DeepSeek-AI. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement
+learning, 2025. URL https://arxiv.org/abs/2501.12948.
+[13] Michael Dennis, Natasha Jaques, Eugene Vinitsky, Alexandre Bayen, Stuart Russell, Andrew
+Critch, and Sergey Levine. Emergent complexity and zero-shot transfer via unsupervised
+environment design. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin, editors,
+Advances in Neural Information Processing Systems, volume 33, pages 13049–13061. Curran
+Associates, Inc., 2020. URL https://proceedings.neurips.cc/paper_files/paper/
+2020/file/985e9a46e10005356bbaf194249f6856-Paper.pdf.
+10
+
+[14] Carlos Florensa, David Held, Markus Wulfmeier, Michael Zhang, and Pieter Abbeel. Reverse
+curriculum generation for reinforcement learning. In Conference on robot learning, pages
+482–495. PMLR, 2017.
+[15] Carlos Florensa, David Held, Xinyang Geng, and Pieter Abbeel. Automatic goal generation
+for reinforcement learning agents. In International conference on machine learning, pages
+1515–1528. PMLR, 2018.
+[16] Kanishk Gandhi, Ayush Chakravarthy, Anikait Singh, Nathan Lile, and Noah D. Goodman.
+Cognitive behaviors that enable self-improving reasoners, or, four habits of highly effective
+stars. arXiv preprint arXiv: 2503.01307, 2025.
+[17] Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, D. Song,
+and J. Steinhardt. Measuring mathematical problem solving with the math dataset. NeurIPS
+Datasets and Benchmarks, 2021.
+[18] Matthew Ho, Vincent Zhu, Xiaoyin Chen, Moksh Jain, Nikolay Malkin, and Edwin Zhang.
+Proof flow: Preliminary study on generative flow network language model tuning for formal
+reasoning. arXiv preprint arXiv: 2410.13224, 2024.
+[19] Edward J Hu, Moksh Jain, Eric Elmoznino, Younesse Kaddar, Guillaume Lajoie, Yoshua Bengio,
+and Nikolay Malkin. Amortizing intractable inference in large language models. International
+Conference on Learning Representations (ICLR), 2024.
+[20] Angelos Katharopoulos and François Fleuret. Not all samples are created equal: Deep learning
+with importance sampling. In International conference on machine learning, pages 2525–2534.
+PMLR, 2018.
+[21] Amirhossein Kazemnejad, Milad Aghajohari, Eva Portelance, Alessandro Sordoni, Siva Reddy,
+Aaron Courville, and Nicolas Le Roux. Vineppo: Unlocking rl potential for llm reasoning
+through refined credit assignment. arXiv preprint arXiv:2410.01679, 2024.
+[22] Minsu Kim, Sanghyeok Choi, Taeyoung Yun, Emmanuel Bengio, Leo Feng, Jarrid RectorBrooks, Sungsoo Ahn, Jinkyoo Park, Nikolay Malkin, and Yoshua Bengio. Adaptive teachers
+for amortized samplers. International Conference on Learning Representations (ICLR), 2025.
+[23] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. arXiv preprint
+arXiv:1412.6980, 2014.
+[24] Wouter Kool, Herke van Hoof, and Max Welling. Buy 4 REINFORCE samples, get a baseline
+for free! In ICLR Workshop on Deep Reinforcement Learning for Structured Prediction, 2019.
+[25] Aviral Kumar, Vincent Zhuang, Rishabh Agarwal, Yi Su, John D Co-Reyes, Avi Singh, Kate
+Baumli, Shariq Iqbal, Colton Bishop, Rebecca Roelofs, Lei M Zhang, Kay McKinney, Disha
+Shrivastava, Cosmin Paduraru, George Tucker, Doina Precup, Feryal Behbahani, and Aleksandra
+Faust. Training language models to self-correct via reinforcement learning. arXiv preprint
+arXiv: 2409.12917, 2024.
+[26] M. Pawan Kumar, Benjamin Packer, and Daphne Koller. Self-paced learning for latent variable
+models. In Advances in Neural Information Processing Systems (NeurIPS), pages 1189–1197,
+2010.
+[27] Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze
+Brahman, Lester James V. Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, Yuling Gu, Saumya
+Malik, Victoria Graf, Jena D. Hwang, Jiangjiang Yang, Ronan Le Bras, Oyvind Tafjord, Chris
+Wilhelm, Luca Soldaini, Noah A. Smith, Yizhong Wang, Pradeep Dasigi, and Hannaneh
+Hajishirzi. Tulu 3: Pushing frontiers in open language model post-training. arXiv preprint
+arXiv: 2411.15124, 2024.
+[28] Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee,
+Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. In The
+Twelfth International Conference on Learning Representations, 2023.
+11
+
+[29] Ilya Loshchilov and Frank Hutter. Online batch selection for faster training of neural networks.
+arXiv preprint arXiv:1511.06343, 2015.
+[30] Michael Luo, Sijun Tan, Roy Huang, Xiaoxiang Shi, Rachel Xin, Colin Cai, Ameen Patel, Alpay
+Ariyak, Qingyang Wu, Ce Zhang, Li Erran Li, Raluca Ada Popa, and Ion Stoica. Deepcoder: A
+fully open-source 14b coder at o3-mini level. https://pretty-radio-b75.notion.site/
+DeepCoder-A-Fully-Open-Source-14B-Coder-at-O3-mini-Level-1cf81902c14680b3bee5eb349a512a51,
+2025. Notion Blog.
+[31] Tambet Matiisen, Avital Oliver, Taco Cohen, and John Schulman. Teacher–student curriculum
+learning. IEEE Transactions on Neural Networks and Learning Systems, 31(9):3732–3740,
+2020. doi: 10.1109/TNNLS.2020.2983146.
+[32] Yu Meng, Mengzhou Xia, and Danqi Chen. Simpo: Simple preference optimization with a
+reference-free reward. Advances in Neural Information Processing Systems, 37:124198–124235,
+2024.
+[33] Michael Noukhovitch, Shengyi Huang, Sophie Xhonneux, Arian Hosseini, Rishabh Agarwal,
+and Aaron Courville. Asynchronous rlhf: Faster and more efficient off-policy rl for language
+models. arXiv preprint arXiv:2410.18252, 2024.
+[34] Open-Thought. Reasoning gym. https://github.com/open-thought/reasoning-gym/,
+2025.
+Learning to reason with llms.
+https://openai.com/index/
+[35] OpenAI.
+learning-to-reason-with-llms/. Accessed: 2025-03-21.
+[36] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin,
+Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to
+follow instructions with human feedback. Advances in neural information processing systems,
+35:27730–27744, 2022.
+[37] Jiayi Pan, Junjie Zhang, Xingyao Wang, Lifan Yuan, Hao Peng, and Alane Suhr. Tinyzero.
+https://github.com/Jiayi-Pan/TinyZero, 2025. Accessed: 2025-01-24.
+[38] Jack Parker-Holder, Minqi Jiang, Michael Dennis, Mikayel Samvelyan, Jakob Foerster, Edward
+Grefenstette, and Tim Rocktäschel. Evolving curricula with regret-based environment design.
+In Proceedings of the 39th International Conference on Machine Learning (ICML), 2022.
+[39] Rémy Portelas, Cédric Colas, Lilian Weng, Katja Hofmann, and Pierre-Yves Oudeyer. Automatic curriculum learning for deep rl: A short survey. International Joint Conference on
+Artificial Intelligence, 2020. doi: 10.24963/ijcai.2020/671.
+[40] Zehan Qi, Xiao Liu, Iat Long Iong, Hanyu Lai, Xueqiao Sun, Wenyi Zhao, Yu Yang, Xinyue
+Yang, Jiadai Sun, Shuntian Yao, et al. Webrl: Training llm web agents via self-evolving online
+curriculum reinforcement learning. arXiv preprint arXiv:2411.02337, 2024.
+[41] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and
+Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model.
+Advances in Neural Information Processing Systems, 36:53728–53741, 2023.
+[42] Tom Schaul, John Quan, Ioannis Antonoglou, and David Silver. Prioritized experience replay.
+arXiv preprint arXiv:1511.05952, 2015.
+[43] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal
+policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017.
+[44] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang,
+Mingchuan Zhang, Y. K. Li, Y. Wu, and Daya Guo. Deepseekmath: Pushing the limits of
+mathematical reasoning in open language models. arXiv preprint arXiv: 2402.03300, 2024.
+[45] Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua
+Peng, Haibin Lin, and Chuan Wu. Hybridflow: A flexible and efficient rlhf framework. arXiv
+preprint arXiv:2409.19256, 2024.
+12
+
+[46] Taiwei Shi, Yiyang Wu, Linxin Song, Tianyi Zhou, and Jieyu Zhao. Efficient reinforcement
+finetuning via adaptive curriculum learning. arXiv preprint arXiv: 2504.05520, 2025.
+[47] Mingyang Song, Mao Zheng, Zheng Li, Wenjie Yang, Xuan Luo, Yue Pan, and Feng Zhang.
+Fastcurl: Curriculum reinforcement learning with progressive context extension for efficient
+training r1-like reasoning models. arXiv preprint arXiv: 2503.17287, 2025.
+[48] Richard S. Sutton. Learning to predict by the methods of temporal differences. Mach. Learn.,
+3(1):9–44, August 1988. ISSN 0885-6125. doi: 10.1023/A:1022633531479. URL https:
+//doi.org/10.1023/A:1022633531479.
+[49] Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction. A Bradford
+Book, Cambridge, MA, USA, 2018. ISBN 0262039249.
+[50] Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li,
+Chenjun Xiao, Chenzhuang Du, Chonghua Liao, et al. Kimi k1. 5: Scaling reinforcement
+learning with llms. arXiv preprint arXiv:2501.12599, 2025.
+[51] William R Thompson. On the likelihood that one unknown probability exceeds another in view
+of the evidence of two samples. Biometrika, 25(3/4):285–294, 1933.
+[52] Georgios Tzannetos, Bárbara Gomes Ribeiro, Parameswaran Kamalaruban, and Adish Singla.
+Proximal curriculum for reinforcement learning agents. arXiv preprint arXiv:2304.12877, 2023.
+[53] Jonathan Uesato, Nate Kushman, Ramana Kumar, Francis Song, Noah Siegel, Lisa Wang,
+Antonia Creswell, Geoffrey Irving, and Irina Higgins. Solving math word problems with
+process- and outcome-based feedback. arXiv preprint arXiv: 2211.14275, 2022.
+[54] Lev Semenovich Vygotsky and Michael Cole. Mind in society: Development of higher psychological processes. Harvard university press, 1978.
+[55] Rui Wang, Joel Lehman, Jeff Clune, and Kenneth O. Stanley. Paired open-ended trailblazer
+(poet): Endlessly generating increasingly complex and diverse learning environments and their
+solutions. In Proceedings of the Genetic and Evolutionary Computation Conference (GECCO
+’19), pages 142–151. ACM, 2019.
+[56] Yuxiang Wei, Olivier Duchenne, Jade Copet, Quentin Carbonneaux, Lingming Zhang, Daniel
+Fried, Gabriel Synnaeve, Rishabh Singh, and Sida I. Wang. Swe-rl: Advancing llm reasoning
+via reinforcement learning on open software evolution. arXiv preprint arXiv: 2502.18449, 2025.
+[57] Liang Wen, Yunke Cai, Fenrui Xiao, Xin He, Qi An, Zhenyu Duan, Yimin Du, Junchen Liu,
+Lifu Tang, Xiaowei Lv, et al. Light-r1: Curriculum sft, dpo and rl for long cot from scratch and
+beyond. arXiv preprint arXiv:2503.10460, 2025.
+[58] Ronald J Williams. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning, 8:229–256, 1992.
+[59] Zhiheng Xi, Wenxiang Chen, Boyang Hong, Senjie Jin, Rui Zheng, Wei He, Yiwen Ding,
+Shichun Liu, Xin Guo, Junzhe Wang, et al. Training large language models for reasoning
+through reverse curriculum reinforcement learning. arXiv preprint arXiv:2402.05808, 2024.
+[60] Yudong Xu, Wenhao Li, Pashootan Vaezipoor, Scott Sanner, and Elias B Khalil. Llms and
+the abstraction and reasoning corpus: Successes, failures, and the importance of object-based
+representations. arXiv preprint arXiv:2305.18354, 2023.
+[61] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan
+Li, Dayiheng Liu, Fei Huang, Haoran Wei, et al. Qwen2. 5 technical report. arXiv preprint
+arXiv:2412.15115, 2024.
+[62] Edward Yeo, Yuxuan Tong, Morry Niu, Graham Neubig, and Xiang Yue. Demystifying long
+chain-of-thought reasoning in llms. arXiv preprint arXiv: 2502.03373, 2025.
+[63] Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Tiantian Fan,
+Gaohong Liu, Lingjun Liu, Xin Liu, et al. Dapo: An open-source llm reinforcement learning
+system at scale. arXiv preprint arXiv:2503.14476, 2025.
+13
+
+[64] Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah Goodman. Star: Bootstrapping reasoning with
+reasoning. Advances in Neural Information Processing Systems, 35:15476–15488, 2022.
+[65] Daniel M. Ziegler, Nisan Stiennon, Jeffrey Wu, Tom B. Brown, Alec Radford, Dario Amodei,
+Paul Christiano, and Geoffrey Irving. Fine-tuning language models from human preferences.
+arXiv preprint arXiv: 1909.08593, 2019.
+
+14
+
+A
+
+Social Impact Statement
+
+This paper introduces SEC, a curriculum-learning method designed to enhance the reasoning capabilities of language models through reinforcement learning. By improving model accuracy and
+generalization, SEC can potentially lead to positive societal impacts, such as more reliable AI assistants and improved accessibility in educational settings. However, as with any method enhancing
+language models, there are potential negative implications: stronger reasoning abilities might facilitate misuse in tasks like misinformation or deceptive content generation. It is thus essential to
+employ these methods alongside responsible AI practices, including robust monitoring and mitigation
+strategies, to manage and minimize possible harmful effects.
+
+B
+
+Implementation Details
+
+Training. All models are fine-tuned with the GRPO algorithms [44] as implemented in the Volcano
+Engine Reinforcement Learning (verl) library [45]. We train separate 3B and 7B parameters variants
+of Qwen2.5 [61]. The fine-tuning processes last in total 240 gradient steps for Qwen2.5-3B and 120
+steps for Qwen2.5-7B with a batch size of 256 on each of the three puzzle tasks. Advantages are
+estimated by 8 rollouts. Both models are trained for 240 steps on the math task. We do not apply the
+Kullback-Leibler (KL) divergence loss by setting the corresponding loss weight to be 0 across our
+study. We limit the max prompt length to be 1,024 tokens and the max response length to be 4,096
+tokens. The model parameters are optimized using Adam [23] with a learning rate of 1e-6 and beta
+(0.9, 0.99) without warm-up steps. All of the training experiments are conducted on 4-8 NVIDIA
+H100 80GB GPUs. Hyperparameters for SEC used in each experiment is summarized in Table S1.
+Model
+Qwen2.5 3B
+Qwen2.5 7B
+
+Countdown
+
+Zebra
+
+ARC
+
+Math
+
+α = 0.5, τ = 1.0
+α = 0.5, τ = 0.2
+
+α = 0.5, τ = 1.0
+α = 0.5, τ = 0.4
+
+α = 0.5, τ = 1.0
+α = 0.5, τ = 1.0
+
+α = 0.2, τ = 1.0
+α = 0.5, τ = 0.4
+
+Table S1: Hyperparameter settings (learning rate α and temperature τ ) used in each experiment.
+
+For the multi-task experiment in Sec. 3.3, we fine-tune the Qwen2.5-3B model for 3 × 240 = 720
+steps on the mixed dataset. We use α = 0.5 and τ = 0.2.
+In Sec. 3.4, we train Qwen2.5-3B for 120 steps in all the experiments. For RLOO, we similarly use 8
+rollouts for advantage estimation and α = 0.5, τ = 0.25 for SEC. For PPO, we use α = 0.5, τ = 1
+for SEC, and λ = 1, γ = 1 for the GAE parameters. Consistent with our main experiments, we do
+not apply the KL divergence loss.
+Models. Below we list the models used in our experiments:
+• Qwen2.5-3B: https://huggingface.co/Qwen/Qwen2.5-3B
+• Qwen2.5-7B: https://huggingface.co/Qwen/Qwen2.5-7B
+Math Datasets. Below we list the data sources used in our experiments:
+• MATH500: https://huggingface.co/datasets/HuggingFaceH4/MATH-500
+• AMC22-23: https://huggingface.co/datasets/AI-MO/aimo-validation-amc
+• AIME: https://huggingface.co/datasets/Maxwell-Jia/AIME_2024
+
+C
+
+Data Examples
+
+Below we list the prompts and data examples for each task in our study. The prompt template is
+adopted from Pan et al. [37].
+Prompt for Countdown:
+A conversation between User and Assistant.
+
+15
+
+The user asks a question, and the
+
+Figure S1: Distribution of difficulty levels in the MATH training set.
+
+Assistant solves it. The assistant first thinks about the reasoning process in
+the mind and then provides the user with the answer.
+User: Using the numbers [5, 17, 91], create an equation that equals 113. You
+can only use basic arithmetic operations (+, -, *, /) and each number should be
+used exactly once. Return the final answer in \boxed{}, for example \boxed{(1 +
+2) / 3}. Assistant: Let me solve this step by step.
+
+Prompt for Zebra Puzzle:
+A conversation between User and Assistant. The user asks a question, and the
+Assistant solves it. The assistant first thinks about the reasoning process in
+the mind and then provides the user with the answer.
+User: This is a logic puzzle. There are 3 houses (numbered 1 on the left,
+3 on the right), from the perspective of someone standing across the street
+from them. Each has a different person in them. They have different
+characteristics:
+- Each person has a unique name: arnold, bob, alice
+- Everyone has a different favorite cigar: dunhill, prince, pall mall
+- The people keep different animals: cat, dog, bird
+1.
+2.
+3.
+4.
+5.
+
+The bird keeper is directly left of the Dunhill smoker.
+Alice is the dog owner.
+Arnold is in the second house.
+Alice is the Prince smoker.
+Arnold is the cat lover.
+
+What is Name of the person who lives in House 1? Provide only the name of the
+person as your final answer and put in in \boxed{}, for example: \boxed{Alice}.
+Assistant: Let me solve this step by step.
+
+Prompt for ARC-1D:
+A conversation between User and Assistant. The user asks a question, and the
+Assistant solves it. The assistant first thinks about the reasoning process in
+the mind and then provides the user with the answer.
+User: Find the common rule that maps an input grid to an output grid, given the
+examples below.
+Example 1:
+Input: 1 2 1 2 1 0 0 1 2 0
+Output: 0 0 0 1 1 1 1 2 2 2
+
+16
+
+Example 2:
+Input: 1 2 0 0 0 0 2 0 1 2
+Output: 0 0 0 0 0 1 1 2 2 2
+Example 3:
+Input: 0 0 2 0 0 0 0 1 1 0
+Output: 0 0 0 0 0 0 0 1 1 2
+Below is a test input grid. Predict the corresponding output grid by applying
+the rule you found. Describe how you derived the rule and your overall
+reasoning process in detail before you submit your answer. Your final answer
+must be placed in \boxed{} and should be just the test output grid itself.
+Input:
+
+0 0 2 0 0 1 1 0 0 1 Assistant:
+
+Let me solve this step by step.
+
+Prompt for math:
+A conversation between User and Assistant. The user asks a question, and the
+Assistant solves it. The assistant first thinks about the reasoning process in
+the mind and then provides the user with the answer.
+User: Find the remainder when
+338182 + 338192 + 338202 + 338212 + 338222
+is divided by 17. Put your final answer within \boxed{}.
+solve this step by step.
+
+17
+
+Assistant:
+
+Let me
+
+

@@ -17,15 +17,17 @@ Prepare ScreenSpot dataset for Arc Vision RL training.
 This script converts the official ScreenSpot dataset from Hugging Face
 (https://huggingface.co/datasets/rootsautomation/ScreenSpot) 
 to VERL-compatible parquet format.
+
+IMPORTANT: This script uses the <|image_pad|> token that Qwen2.5-VL expects
+for image placeholders in prompts. This is critical for the model to properly
+process images during training.
 """
 
 import argparse
-import json
 import os
 from typing import Dict, List, Any
 
 import datasets
-import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
@@ -33,27 +35,53 @@ from verl.utils.hdfs_io import copy, makedirs
 
 
 def create_reasoning_prompt(instruction: str) -> str:
-    """Create a reasoning-enhanced prompt for UI detection.
+    """Create an optimized prompt for UI detection that works with small models.
     
-    This prompt encourages the model to think about whether it needs tools
-    before attempting detection.
+    Key changes based on research:
+    1. Removes explicit confidence scores (models hallucinate these)
+    2. Uses decision-based approach (tool or no tool)
+    3. Maintains compatibility with reward function
+    4. Leverages model's training on reasoning and tool usage
+    5. ENFORCES reasoning before any output to prevent short responses
     """
+    # For Qwen2.5-VL, we use <image> in the prompt text
     prompt = f"""<image>
 {instruction}
 
-First, analyze the image and describe what you observe about the target element:
+You MUST complete ALL steps below in order:
+
+Step 1: Analyze the target element thoroughly
 <reasoning>
-- Is the element clearly visible or partially obscured?
-- Is it small, blurry, or low contrast?
-- What challenges do you face in locating it?
-- Do you need to use tools to see it better?
+Examine and describe:
+- Element location: Where on the screen is it located?
+- Size: Estimate the percentage of screen area it occupies
+- Visibility: Are all edges and boundaries clearly visible?
+- Contrast: How well does it stand out from the background?
+- Occlusion: Is any part hidden, overlapped, or unclear?
+- Challenges: What makes this element easy or difficult to detect?
 </reasoning>
 
-Then provide the bounding box coordinates [x1, y1, x2, y2] in normalized format (0-1).
-If you need to use tools, you can call:
-- zoom_ui_element: To zoom into a region for better visibility
-- wait_for_ui: To wait for elements to load
-- inspect_element: To get additional information about UI structure"""
+Step 2: Based on your analysis, decide your approach
+
+If the element is CLEAR (visible edges, good contrast, >5% screen area):
+→ Directly provide the bounding box:
+<bbox>[x1, y1, x2, y2]</bbox>
+
+If the element needs assistance (small, unclear, or partially hidden):
+→ Use appropriate tools to get better visibility:
+<use_tool>zoom_ui_element</use_tool> - for elements <5% of screen
+<use_tool>inspect_element</use_tool> - for unclear boundaries or low contrast
+<use_tool>wait_for_ui</use_tool> - if UI is still loading or animating
+
+IMPORTANT: When using tools, wait for the tool results before providing the final bbox.
+The system will execute your tools and provide results in the next interaction.
+
+CRITICAL REQUIREMENTS:
+1. You MUST provide reasoning in Step 1 before ANY other output
+2. Coordinates must be normalized (0.0 to 1.0)
+3. Format: [x1, y1, x2, y2] where x1<x2 and y1<y2
+4. x1,y1 = top-left corner; x2,y2 = bottom-right corner
+5. Example: <bbox>[0.142, 0.058, 0.384, 0.126]</bbox>"""
     
     return prompt
 
@@ -86,9 +114,14 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     
     # Save image to disk
     image_filename = f"{split}_{idx}.png"
-    image_path = os.path.join(image_dir, image_filename)
+    full_image_path = os.path.join(image_dir, image_filename)
     if image:
-        image.save(image_path)
+        image.save(full_image_path)
+    
+    # Use absolute path for container environment
+    # VERL copies parquet files to cache but not image directories,
+    # so we need absolute paths to find the images
+    image_path = full_image_path
     
     # Create reasoning-enhanced prompt
     enhanced_prompt = create_reasoning_prompt(instruction)
@@ -104,14 +137,13 @@ def process_screenspot_sample(sample: Dict[str, Any], idx: int, split: str, imag
     # Create VERL-compatible record
     record = {
         "data_source": "arc_vision",  # Use consistent data source name
-        "prompt": json.dumps(messages),  # Store as JSON string to avoid numpy array conversion
+        "prompt": messages,  # Store as list directly, like geo3k example
         "images": [{"image": image_path}],  # Use dict format expected by Qwen2.5-VL
         "ability": "ui_detection",
         "ground_truth": bbox_normalized,  # Add at top level for reward function
         "reward_model": {  # Store as dict, not JSON string
             "style": "arc_vision",
             "ground_truth": bbox_normalized,
-            "confidence_threshold": 0.7,
             "reward_weights": {
                 "task": 0.6,
                 "tool": 0.3,
@@ -171,10 +203,11 @@ def main():
         total_samples = len(test_dataset)
         print(f"Total samples to split: {total_samples}")
         
-        # Calculate split sizes (60/20/20)
-        train_size = int(0.6 * total_samples)
-        val_size = int(0.2 * total_samples)
-        test_size = total_samples - train_size - val_size
+        # Calculate split sizes - optimize for training data
+        # Original would be 60/20/20, but we cap validation at 60
+        test_size = int(0.2 * total_samples)  # Keep test at 20%
+        val_size = min(60, int(0.2 * total_samples))  # Cap validation at 60 samples for efficiency
+        train_size = total_samples - test_size - val_size  # Rest goes to training
         
         print(f"Split sizes - Train: {train_size}, Validation: {val_size}, Test: {test_size}")
         
@@ -225,28 +258,29 @@ def main():
         
         print(f"Successfully processed {len(records)} samples")
         
-        # Convert to DataFrame and save as parquet
-        df = pd.DataFrame(records)
+        # Convert to HuggingFace Dataset and save as parquet (preserves list format)
+        from datasets import Dataset
+        dataset = Dataset.from_list(records)
         output_file = os.path.join(local_dir, f"{split}.parquet")
-        df.to_parquet(output_file)
+        dataset.to_parquet(output_file)
         print(f"Saved {split} data to: {output_file}")
         
         # Print sample statistics
         print(f"\n{split} statistics:")
-        print(f"  Total samples: {len(df)}")
+        print(f"  Total samples: {len(dataset)}")
         print(f"  Images saved to: {image_dir}")
         
-        # Get instruction length from extra_info
-        extra_infos = df['extra_info']
-        print(f"  Average instruction length: {extra_infos.apply(lambda x: len(x['original_instruction'])).mean():.1f} chars")
+        # Calculate statistics from the dataset
+        instructions = [r['extra_info']['original_instruction'] for r in records]
+        avg_instruction_len = sum(len(inst) for inst in instructions) / len(instructions)
+        print(f"  Average instruction length: {avg_instruction_len:.1f} chars")
         
         # Check bbox distribution
-        reward_models = df['reward_model']
-        bboxes = reward_models.apply(lambda x: x['ground_truth'])
-        bbox_areas = bboxes.apply(lambda b: (b[2] - b[0]) * (b[3] - b[1]))
-        print(f"  Average bbox area: {bbox_areas.mean():.3f}")
-        print(f"  Min bbox area: {bbox_areas.min():.3f}")
-        print(f"  Max bbox area: {bbox_areas.max():.3f}")
+        bboxes = [r['reward_model']['ground_truth'] for r in records]
+        bbox_areas = [(b[2] - b[0]) * (b[3] - b[1]) for b in bboxes]
+        print(f"  Average bbox area: {sum(bbox_areas) / len(bbox_areas):.3f}")
+        print(f"  Min bbox area: {min(bbox_areas):.3f}")
+        print(f"  Max bbox area: {max(bbox_areas):.3f}")
     
     # Copy to HDFS if specified
     if args.hdfs_dir:

@@ -12,16 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .confidence_tracker import (
-    extract_tool_usage_as_confidence_proxy,
-    analyze_reasoning_for_confidence,
-    compute_effective_confidence,
-    should_use_tools
-)
+# Confidence tracking removed - using objective difficulty metrics instead
 
-__all__ = [
-    "extract_tool_usage_as_confidence_proxy",
-    "analyze_reasoning_for_confidence", 
-    "compute_effective_confidence",
-    "should_use_tools"
-]
+__all__ = []

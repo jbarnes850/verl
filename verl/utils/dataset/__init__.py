@@ -15,5 +15,6 @@
 from .rl_dataset import RLHFDataset
 from .rm_dataset import RMDataset
 from .sft_dataset import SFTDataset
+from .task_classification_dataset import TaskClassificationDataset
 
-__all__ = ["RLHFDataset", "RMDataset", "SFTDataset"]
+__all__ = ["RLHFDataset", "RMDataset", "SFTDataset", "TaskClassificationDataset"]
