@@ -150,13 +150,23 @@ def entropy_from_logits(logits: torch.Tensor):
 
 
 def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 2048):
-    """Memory-efficient entropy calculation with chunking."""
-    entropy = torch.zeros(logits.shape[0], device=logits.device)
-    for i in range(0, logits.shape[0], chunk_size):
-        logits_chunk = logits[i : i + chunk_size].float()
+    """Memory-efficient entropy calculation with chunking.
+    
+    Chunks along sequence dimension to reduce memory usage.
+    logits shape: [batch_size, sequence_length, vocab_size]
+    returns: [batch_size, sequence_length]
+    """
+    batch_size, seq_len, vocab_size = logits.shape
+    entropy = torch.zeros(batch_size, seq_len, device=logits.device)
+    
+    # Chunk along sequence dimension
+    for i in range(0, seq_len, chunk_size):
+        end_idx = min(i + chunk_size, seq_len)
+        logits_chunk = logits[:, i:end_idx, :].float()
         pd_chunk = torch.nn.functional.softmax(logits_chunk, dim=-1)
         entropy_chunk = torch.logsumexp(logits_chunk, dim=-1) - torch.sum(pd_chunk * logits_chunk, dim=-1)
-        entropy[i : i + chunk_size] = entropy_chunk
+        entropy[:, i:end_idx] = entropy_chunk
+    
     return entropy
 
 

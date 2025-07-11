@@ -346,8 +346,8 @@ class SECCurriculumSampler:
         
         for idx in range(len(self.dataset)):
             example = self.dataset[idx]
-            # Get arm_idx from extra_info if available
-            arm_idx = example.get('extra_info', {}).get('arm_idx', 0)
+            # Get arm_idx directly from the dataset (from parquet column)
+            arm_idx = example.get('arm_idx', 0)
             if arm_idx in arm_to_indices:
                 arm_to_indices[arm_idx].append(idx)
         

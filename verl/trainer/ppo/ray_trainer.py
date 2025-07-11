@@ -20,6 +20,7 @@ This trainer supports model-agonistic model initialization with huggingface
 
 import json
 import os
+import time
 import uuid
 from collections import defaultdict
 from copy import deepcopy
@@ -282,9 +283,27 @@ def compute_advantage(
         # SEC Curriculum: Update Q-values with learning gain from GRPO advantages
         if hasattr(data, 'sec_curriculum') and data.sec_curriculum is not None:
             import numpy as np
-            learning_gain = float(np.mean(np.abs(advantages.cpu().numpy())))
-            arm_idx = data.non_tensor_batch.get("sec_arm_idx", 0)
-            data.sec_curriculum.update_q_values(arm_idx, learning_gain)
+            from collections import defaultdict
+            
+            # Get arm indices for all examples in the batch
+            arm_indices = data.non_tensor_batch.get("arm_idx", None)
+            if arm_indices is not None:
+                # Convert advantages to numpy for easier manipulation
+                adv_np = advantages.cpu().numpy()
+                
+                # Group advantages by arm following SEC Algorithm 1
+                arm_to_advantages = defaultdict(list)
+                for i, arm_idx in enumerate(arm_indices):
+                    # Get advantages for all tokens in this example
+                    example_advantages = adv_np[i]
+                    # Take absolute value and compute mean for this example
+                    arm_to_advantages[int(arm_idx)].append(np.mean(np.abs(example_advantages)))
+                
+                # Update Q-values for each arm that appeared in the batch
+                for arm_idx, arm_advantages in arm_to_advantages.items():
+                    # Compute average learning gain for this arm (SEC paper Eq. 3)
+                    learning_gain = float(np.mean(arm_advantages))
+                    data.sec_curriculum.update_q_values(arm_idx, learning_gain)
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -681,6 +700,187 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
+    def _compute_sec_metrics(self, batch: DataProto, timing_raw: dict, n_gpus: int) -> dict:
+        """Compute SEC-specific metrics to answer business questions."""
+        metrics = {}
+        
+        # Get SEC curriculum if available
+        sec_curriculum = getattr(self.train_dataset, 'sec_curriculum', None)
+        if sec_curriculum is None:
+            return metrics
+        
+        # 1. Learning Speed Metrics (vs static baseline)
+        rewards = batch.batch.get("rewards", batch.batch.get("token_level_scores", None))
+        if rewards is not None:
+            # Extract actual rewards from the last non-zero position of each sequence
+            # rewards shape is [batch_size, sequence_length]
+            actual_rewards = []
+            for i in range(rewards.shape[0]):
+                reward_sequence = rewards[i]
+                non_zero_mask = reward_sequence != 0
+                if non_zero_mask.any():
+                    last_non_zero_idx = torch.where(non_zero_mask)[0][-1]
+                    actual_rewards.append(reward_sequence[last_non_zero_idx].item())
+                else:
+                    actual_rewards.append(0.0)
+            
+            mean_reward = np.mean(actual_rewards) if actual_rewards else 0.0
+            max_reward = np.max(actual_rewards) if actual_rewards else 0.0
+            
+            # Track reward progression
+            if not hasattr(self, '_sec_reward_history'):
+                self._sec_reward_history = []
+                self._sec_baseline_reward = mean_reward  # Initial reward as baseline
+            
+            self._sec_reward_history.append(mean_reward)
+            
+            # Learning speed compared to baseline
+            improvement_rate = (mean_reward - self._sec_baseline_reward) / max(len(self._sec_reward_history), 1)
+            speedup = mean_reward / max(self._sec_baseline_reward, 0.01)
+            
+            metrics.update({
+                "sec/learning_speed/current_reward": mean_reward,
+                "sec/learning_speed/max_reward": max_reward,
+                "sec/learning_speed/improvement_rate": improvement_rate,
+                "sec/learning_speed/speedup_vs_baseline": speedup,
+                "sec/learning_speed/episodes_trained": len(self._sec_reward_history),
+            })
+        
+        # 2. Compute Efficiency Metrics
+        step_time = timing_raw.get("step", 0)
+        samples_per_step = len(batch)
+        if not hasattr(self, '_sec_compute_start'):
+            self._sec_compute_start = time.time()
+            self._sec_total_samples = 0
+        
+        self._sec_total_samples += samples_per_step
+        elapsed_hours = (time.time() - self._sec_compute_start) / 3600
+        gpu_hours = elapsed_hours * n_gpus
+        
+        metrics.update({
+            "sec/compute/samples_per_second": samples_per_step / max(step_time, 0.001),
+            "sec/compute/gpu_hours": gpu_hours,
+            "sec/compute/total_samples": self._sec_total_samples,
+            "sec/compute/samples_per_gpu_hour": self._sec_total_samples / max(gpu_hours, 0.001),
+            "sec/compute/cost_efficiency": mean_reward / max(gpu_hours, 0.001) if 'mean_reward' in locals() else 0,
+        })
+        
+        # 3. Curriculum Learning Metrics
+        # Track Q-values for each arm
+        for arm_idx in range(sec_curriculum.num_arms):
+            q_value = sec_curriculum.q_values[arm_idx]
+            metrics[f"sec/curriculum/arm_{arm_idx}_q_value"] = q_value
+        
+        # Track arm selection distribution
+        if hasattr(batch, 'non_tensor_batch') and 'arm_idx' in batch.non_tensor_batch:
+            arm_indices = batch.non_tensor_batch['arm_idx']
+            if not hasattr(self, '_sec_arm_counts'):
+                self._sec_arm_counts = {i: 0 for i in range(sec_curriculum.num_arms)}
+            
+            for idx in arm_indices:
+                if isinstance(idx, torch.Tensor):
+                    idx = idx.item()
+                elif isinstance(idx, np.ndarray):
+                    idx = int(idx)
+                else:
+                    idx = int(idx)
+                self._sec_arm_counts[idx] = self._sec_arm_counts.get(idx, 0) + 1
+            
+            # Compute entropy of arm selection (diversity metric)
+            total_counts = sum(self._sec_arm_counts.values())
+            if total_counts > 0:
+                probs = [count / total_counts for count in self._sec_arm_counts.values()]
+                entropy = -sum(p * np.log(p + 1e-10) for p in probs if p > 0)
+                metrics["sec/curriculum/selection_entropy"] = entropy
+                
+                # Arm utilization
+                for arm_idx, count in self._sec_arm_counts.items():
+                    metrics[f"sec/curriculum/arm_{arm_idx}_utilization"] = count / total_counts
+        
+        # 4. Sample Efficiency Metrics
+        if rewards is not None and hasattr(self, '_sec_total_samples'):
+            reward_per_sample = mean_reward / max(self._sec_total_samples, 1)
+            
+            # Track when we reach performance thresholds
+            if not hasattr(self, '_sec_threshold_samples'):
+                self._sec_threshold_samples = {}
+            
+            thresholds = [0.5, 0.7, 0.8, 0.9]
+            for threshold in thresholds:
+                if mean_reward >= threshold and threshold not in self._sec_threshold_samples:
+                    self._sec_threshold_samples[threshold] = self._sec_total_samples
+                    metrics[f"sec/efficiency/samples_to_{int(threshold*100)}pct"] = self._sec_total_samples
+            
+            metrics.update({
+                "sec/efficiency/reward_per_sample": reward_per_sample,
+                "sec/efficiency/sample_efficiency": mean_reward * 1000 / max(self._sec_total_samples, 1),
+            })
+        
+        # 5. Task Performance Breakdown (for generalization analysis)
+        if hasattr(batch, 'non_tensor_batch') and rewards is not None and len(batch.non_tensor_batch) > 0:
+            if not hasattr(self, '_sec_task_performance'):
+                self._sec_task_performance = {}
+                self._sec_skill_performance = {}
+                self._sec_difficulty_performance = {}
+            
+            # Get skill, difficulty, and task_name arrays from non_tensor_batch
+            skills = batch.non_tensor_batch.get('skill', None)
+            difficulties = batch.non_tensor_batch.get('difficulty', None)
+            task_names = batch.non_tensor_batch.get('task_name', None)
+            
+            # Aggregate by task, skill, and difficulty
+            for i in range(len(batch)):
+                if i < len(rewards):
+                    # Extract reward from the last position in the sequence
+                    # rewards shape is [batch_size, sequence_length] with actual reward at the last position
+                    reward_sequence = rewards[i]  # shape: [sequence_length]
+                    # Find the last non-zero position (actual reward)
+                    non_zero_mask = reward_sequence != 0
+                    if non_zero_mask.any():
+                        # Get the last non-zero position
+                        last_non_zero_idx = torch.where(non_zero_mask)[0][-1]
+                        reward = reward_sequence[last_non_zero_idx].item()
+                    else:
+                        reward = 0.0
+                    
+                    # Track by skill
+                    if skills is not None and i < len(skills):
+                        skill = str(skills[i]) if not isinstance(skills[i], str) else skills[i]
+                        if skill not in self._sec_skill_performance:
+                            self._sec_skill_performance[skill] = []
+                        self._sec_skill_performance[skill].append(reward)
+                    
+                    # Track by difficulty
+                    if difficulties is not None and i < len(difficulties):
+                        difficulty = str(difficulties[i]) if not isinstance(difficulties[i], str) else difficulties[i]
+                        if difficulty not in self._sec_difficulty_performance:
+                            self._sec_difficulty_performance[difficulty] = []
+                        self._sec_difficulty_performance[difficulty].append(reward)
+                    
+                    # Track by task (limited to avoid too many metrics)
+                    if task_names is not None and i < len(task_names):
+                        task = str(task_names[i]) if not isinstance(task_names[i], str) else task_names[i]
+                        if task not in self._sec_task_performance:
+                            self._sec_task_performance[task] = []
+                        self._sec_task_performance[task].append(reward)
+            
+            # Report aggregated metrics
+            for skill, rewards_list in self._sec_skill_performance.items():
+                if len(rewards_list) > 0:
+                    metrics[f"sec/performance/skill_{skill}_avg_reward"] = np.mean(rewards_list[-100:])  # Last 100
+            
+            for difficulty, rewards_list in self._sec_difficulty_performance.items():
+                if len(rewards_list) > 0:
+                    metrics[f"sec/performance/difficulty_{difficulty}_avg_reward"] = np.mean(rewards_list[-100:])
+            
+            # Generalization gap between difficulties
+            if 'easy' in self._sec_difficulty_performance and 'hard' in self._sec_difficulty_performance:
+                easy_avg = np.mean(self._sec_difficulty_performance['easy'][-100:]) if self._sec_difficulty_performance['easy'] else 0
+                hard_avg = np.mean(self._sec_difficulty_performance['hard'][-100:]) if self._sec_difficulty_performance['hard'] else 0
+                metrics["sec/generalization/easy_hard_gap"] = easy_avg - hard_avg
+        
+        return metrics
+
     def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -805,6 +1005,35 @@ class RayPPOTrainer:
                         metric_sec = "val-aux"
                     pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
                     metric_dict[pfx] = metric_val
+        
+        # Add SEC-specific validation metrics for OOD analysis
+        if hasattr(self.train_dataset, 'sec_curriculum') and len(sample_scores) > 0:
+            # Track OOD performance (validation is on held-out tasks)
+            ood_mean_score = np.mean(sample_scores)
+            metric_dict["sec/generalization/ood_mean_reward"] = ood_mean_score
+            
+            # Compare to in-domain performance
+            if hasattr(self, '_sec_reward_history') and len(self._sec_reward_history) > 0:
+                in_domain_mean = np.mean(self._sec_reward_history[-10:])  # Last 10 training rewards
+                generalization_gap = in_domain_mean - ood_mean_score
+                metric_dict["sec/generalization/domain_gap"] = generalization_gap
+                metric_dict["sec/generalization/transfer_ratio"] = ood_mean_score / max(in_domain_mean, 0.01)
+            
+            # Track performance by OOD task type
+            if data_sources is not None and len(data_sources) > 0:
+                ood_task_scores = {}
+                for i, (task, score) in enumerate(zip(data_sources, sample_scores)):
+                    if isinstance(task, (list, np.ndarray)):
+                        task = task[0] if len(task) > 0 else "unknown"
+                    task_str = str(task)
+                    if task_str not in ood_task_scores:
+                        ood_task_scores[task_str] = []
+                    ood_task_scores[task_str].append(score)
+                
+                # Report OOD task performance
+                for task, scores in ood_task_scores.items():
+                    if len(scores) > 0:
+                        metric_dict[f"sec/ood_tasks/{task}_mean_reward"] = np.mean(scores)
 
         return metric_dict
 
@@ -1250,6 +1479,10 @@ class RayPPOTrainer:
                         norm_adv_by_std_in_grpo = self.config.algorithm.get(
                             "norm_adv_by_std_in_grpo", True
                         )  # GRPO adv normalization factor
+                        
+                        # Attach SEC curriculum if available
+                        if hasattr(self.train_dataset, 'sec_curriculum'):
+                            batch.sec_curriculum = self.train_dataset.sec_curriculum
 
                         batch = compute_advantage(
                             batch,
@@ -1335,6 +1568,11 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                
+                # Add SEC-specific metrics for business questions
+                if hasattr(self.train_dataset, 'sec_curriculum'):
+                    sec_metrics = self._compute_sec_metrics(batch, timing_raw, n_gpus)
+                    metrics.update(sec_metrics)
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

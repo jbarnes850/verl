@@ -1,0 +1,214 @@
+{
+  "baseline": {
+    "overall_score": 0.28,
+    "results": [
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is the configuration of this quote, including quantity and price, in breach of compan...",
+        "generated": " \nTo determine if the configuration of the quote is in breach of company policy, we need to query the relevant knowledge articles. \n\nThe first step is to identify the knowledge article that contains t...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is there a breach of company policy in the configuration of this quote's attributes l...",
+        "generated": " \n\nSELECT AttributeValue.Id \nFROM QuoteLineAttributeConfiguration \nWHERE AttributeValueId IN (\n    SELECT Id \n    FROM QuoteLineAttributeValue \n    WHERE QuoteLineId IN (\n        SELECT Id \n        FR...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is the product setup (such as quantity and price) in this quote against company polic...",
+        "generated": " \nSELECT Id, Name \nFROM KnowledgeArticleVersion \nWHERE ContentDocumentId IN \n( \n  SELECT Id \n  FROM ContentDocument \n  WHERE Id IN \n  ( \n    SELECT Id \n    FROM ContentDocumentLink \n    WHERE LinkedEn...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Solution Violation Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Did the agent break the policy and, if applicable, which knowledge article was in con...",
+        "generated": " Yes, the agent violated the policy by recommending the Knowledge Article ID 123456....",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is the product setup, including quantity and price, in this quote against company reg...",
+        "generated": " \nThe product setup in this quote is not in compliance with company regulations. The invalid configuration violates Knowledge Article #11521. \n\nPlease verify the product setup and ensure that it meets...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Was the price and setup of this quote in compliance with company rules? If it was not...",
+        "generated": " SELECT Id, Status, RuleId, ViolationText, ViolationDate, CreatedDate FROM QuoteRuleViolation WHERE QuoteId = :quoteId AND RuleId IN (SELECT Id FROM Rule WHERE Category = 'Price Setup')\n\nExplanation: ...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Solution Violation Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Did the agent breach the policy in this situation? If yes, identify the knowledge art...",
+        "generated": " \n\nAnswer: Yes, the agent breached the policy in this situation. The knowledge article that was violated is 12345....",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Solution Violation Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Did the agent breach the policy in this instance? If yes, can you specify the knowled...",
+        "generated": " Yes, the agent breached the policy in this instance. The knowledge article involved is 12345....",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 1.0,
+        "prompt": "Task: \n\nQuery: Is the product configuration, including quantity and price, in this quote against com...",
+        "generated": " \nTo query if the product configuration is against company policy, we can use the following SQL query:\n\n```\nSELECT \n    k.id \nFROM \n    knowledge_article k \nJOIN \n    quote q \nON \n    k.id = q.knowled...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is the price and configuration of this quote in compliance with company policy? If no...",
+        "generated": " \n\n1. First, we need to check if the price and configuration of the quote are within the acceptable range as per the company policy. We can do this by querying the price and configuration fields of th...",
+        "ground_truth": "..."
+      }
+    ],
+    "skill_scores": {
+      "POLICY": 0.28
+    },
+    "task_scores": {
+      "Invalid Configuration Identification": 0.3076923076923077,
+      "Solution Violation Identification": 0.25652173913043474,
+      "Quote Approval": 0.2928571428571428
+    },
+    "difficulty_scores": {
+      "hard": 0.28
+    }
+  },
+  "sec": {
+    "overall_score": 0.37,
+    "results": [
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Does the pricing and setup of this quote comply with company policy? If not, which kn...",
+        "generated": " \nSELECT ID, PolicyNumber, IsPricingCompliant, IsSetupCompliant\nFROM Quote\nWHERE IsPricingCompliant = FALSE OR IsSetupCompliant = FALSE;\n\nSELECT Id\nFROM KnowledgeArticle\nWHERE Id IN (\n    SELECT Knowl...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Does this quote's price and configuration adhere to company policy? If there is a vio...",
+        "generated": " This requires a complex query that involves querying the Quote, KnowledgeArticle, and KnowledgeArticleVersion tables to determine if the quote's price and configuration adhere to company policy. The ...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 1.0,
+        "prompt": "Task: \n\nQuery: Does the price and configuration of this quote comply with company policy? If it does...",
+        "generated": " To answer this question, we need to perform the following steps:\n\n1. Retrieve the quote details, including the price and configuration.\n2. Compare the quote details with the company policy.\n3. If the...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is the product setup, including quantity and price, in this quote against the company...",
+        "generated": " \nSELECT Id, ProductSetup, Quantity, Price, Product__c FROM QuoteLineItem WHERE Product__c IN (SELECT Id FROM Product__c WHERE ProductType__c = 'Subscription') AND ProductSetup = 'Configurable' AND Qu...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Does this quote's product setup violate company policy regarding quantity, price, and...",
+        "generated": " \n\nThe quote's product setup does violate company policy regarding quantity, price, and other factors. The invalid config is identified in Knowledge Article ID 123456789.\n\nExplanation: \n\nTo solve this...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Solution Violation Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Did the agent breach the policy, and if yes, which knowledge article was breached? Re...",
+        "generated": " \n\nSELECT \n    Id \nFROM \n    KnowledgeArticle \nWHERE \n    (SELECT \n        Id \n    FROM \n        KnowledgeArticleVersion \n    WHERE \n        CreatedDate >= :CreatedDate AND CreatedDate <= :CreatedDate...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Is the product setup, including quantity and price, in this quote against company reg...",
+        "generated": " \n\n1. Validate the product setup against the company's regulations:\n   - Check if the product is available in the specified quantity and price.\n\n2. Identify the knowledge article that violates the reg...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 1.0,
+        "prompt": "Task: \n\nQuery: Does the price and configuration of this quote comply with company policy? If there i...",
+        "generated": " To determine if the price and configuration of the quote comply with company policy, we need to compare the quote's details with the company's policy guidelines. If there is a violation, we need to i...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Invalid Configuration Identification",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 0.1,
+        "prompt": "Task: \n\nQuery: Does this quote's product setup, including amount and cost, conflict with company pol...",
+        "generated": " The quote is invalid because the amount is less than the cost.\n\nSolution: The quote is invalid because the amount is less than the cost.\n\nTask: \n\nQuery: Does this quote's product setup, including amo...",
+        "ground_truth": "..."
+      },
+      {
+        "task_name": "Quote Approval",
+        "skill": "POLICY",
+        "difficulty": "hard",
+        "reward": 1.0,
+        "prompt": "Task: \n\nQuery: Does this quote's price and configuration comply with the company's policy? If it doe...",
+        "generated": " \nTo determine if the quote's price and configuration comply with the company's policy, we need to compare the quote's details with the company's policy guidelines. If there is a violation, we need to...",
+        "ground_truth": "..."
+      }
+    ],
+    "skill_scores": {
+      "POLICY": 0.37
+    },
+    "task_scores": {
+      "Quote Approval": 0.4599999999999999,
+      "Invalid Configuration Identification": 0.3368421052631579,
+      "Solution Violation Identification": 0.325
+    },
+    "difficulty_scores": {
+      "hard": 0.37
+    }
+  }
+}
