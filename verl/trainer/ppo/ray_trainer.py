@@ -288,22 +288,29 @@ def compute_advantage(
             # Get arm indices for all examples in the batch
             arm_indices = data.non_tensor_batch.get("arm_idx", None)
             if arm_indices is not None:
-                # Convert advantages to numpy for easier manipulation
+                # SEC paper uses absolute advantages as learning gains
+                # As proven in the paper, this is optimal for binary rewards
                 adv_np = advantages.cpu().numpy()
                 
-                # Group advantages by arm following SEC Algorithm 1
+                # Group absolute advantages by arm following SEC Algorithm 1
                 arm_to_advantages = defaultdict(list)
                 for i, arm_idx in enumerate(arm_indices):
                     # Get advantages for all tokens in this example
                     example_advantages = adv_np[i]
-                    # Take absolute value and compute mean for this example
-                    arm_to_advantages[int(arm_idx)].append(np.mean(np.abs(example_advantages)))
+                    # Response mask to only consider actual response tokens
+                    example_mask = data.batch["response_mask"][i].cpu().numpy()
+                    # Take absolute value and compute mean for valid tokens only
+                    masked_advantages = example_advantages[example_mask > 0]
+                    if len(masked_advantages) > 0:
+                        # SEC paper Eq. 3: use mean of absolute advantages as learning gain
+                        arm_to_advantages[int(arm_idx)].append(np.mean(np.abs(masked_advantages)))
                 
                 # Update Q-values for each arm that appeared in the batch
                 for arm_idx, arm_advantages in arm_to_advantages.items():
-                    # Compute average learning gain for this arm (SEC paper Eq. 3)
-                    learning_gain = float(np.mean(arm_advantages))
-                    data.sec_curriculum.update_q_values(arm_idx, learning_gain)
+                    if arm_advantages:  # Only update if we have data
+                        # Compute average learning gain for this arm (SEC paper Eq. 3)
+                        learning_gain = float(np.mean(arm_advantages))
+                        data.sec_curriculum.update_q_values(arm_idx, learning_gain)
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)

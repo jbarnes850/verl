@@ -9,12 +9,7 @@ data:
   sec_tau: 0.5    # SEC paper softmax temperature
   
   # CRMArena data configuration
-  use_crmarena: true
-  dataset_name: "Salesforce/CRMArenaPro"
-  train_tasks: ["case_routing", "lead_routing", "lead_qualification", "knowledge_qa", "sales_insight_mining", "wrong_stage_rectification", "activity_priority", "named_entity_disambiguation", "handle_time", "transfer_count", "top_issue_identification", "monthly_trend_analysis", "best_region_identification", "sales_amount_understanding", "sales_cycle_understanding", "conversion_rate_comprehension"]
-  test_tasks: ["invalid_config", "policy_violation_identification", "quote_approval"]
-  train_split_ratio: 0.75
-  cache_dir: "./data/verl_format"
+  # Data already generated in parquet format - no task lists needed
   
   # Data paths (will be auto-generated from CRMArena data)
   train_files: ["./data/verl_format/train.parquet"]
@@ -396,17 +391,17 @@ reward_model:
 # trainer config
 trainer:
   # Project and experiment names
-  project_name: sec_curriculum_verl_qwen3_4b
-  experiment_name: sec_grpo_qwen3_4b
+  project_name: sec_curriculum_verl_qwen3_4b_long
+  experiment_name: sec_grpo_qwen3_4b_200steps
   
   # Training epochs and steps
-  total_epochs: 1
-  max_epochs: 1
-  total_training_steps: null
+  total_epochs: 50
+  max_epochs: 50
+  total_training_steps: 200
   
   # Checkpointing and testing
-  save_freq: 50
-  test_freq: 25
+  save_freq: 20
+  test_freq: 10
   
   # Hardware configuration
   n_gpus_per_node: 2
@@ -420,8 +415,8 @@ trainer:
   validation_data_dir: null
   
   # WandB configuration
-  wandb_project: "sec-curriculum-verl-qwen3-4b"
-  wandb_run_name: "sec-grpo-qwen3-4b-crmarena"
+  wandb_project: "sec-curriculum-verl-qwen3-4b-long"
+  wandb_run_name: "sec-grpo-qwen3-4b-200steps"
   wandb_tags: ["SEC", "GRPO", "CRMArena", "curriculum-learning"]
   
   # Profiling configuration
@@ -441,7 +436,7 @@ trainer:
   # Resume and checkpoint management
   resume_mode: auto
   resume_from_path: null
-  default_local_dir: ./checkpoint_qwen3_4b
+  default_local_dir: ./checkpoint_qwen3_4b_200steps
   default_hdfs_dir: null
   del_local_ckpt_after_load: false
   remove_previous_ckpt_in_save: false

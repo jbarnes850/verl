@@ -42,6 +42,7 @@
 - Keep functions focused on single responsibilities
 - Make all configuration explicit and externally configurable
 - Handle all error conditions with specific, actionable error types
+- Fail fast with clear error messages when required data is missing
 
 **NEVER DO:**
 - Use abbreviations, acronyms, or unclear variable names
@@ -49,6 +50,7 @@
 - Create deeply nested control structures or inheritance hierarchies
 - Use magic numbers, strings, or unexplained constants
 - Implement silent failures or generic exception handling
+- Use silent fallbacks (e.g., `dict.get(key, default)`) for critical data - if data is required, the code must raise an error
 
 ## Production-Grade Implementation
 

@@ -21,9 +21,13 @@ import socket
 import hydra
 import ray
 from omegaconf import OmegaConf
+from dotenv import load_dotenv
 
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)

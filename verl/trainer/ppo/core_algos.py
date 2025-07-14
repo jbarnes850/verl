@@ -1009,7 +1009,8 @@ class SECCurriculum:
         self.num_arms = 12  # SEC paper: 4 skills × 3 difficulties
         self.alpha = alpha
         self.tau = tau
-        self.q_values = np.zeros(self.num_arms)
+        # Initialize with small random values to encourage exploration
+        self.q_values = np.random.uniform(0, 0.01, self.num_arms)
         self.arm_counts = np.zeros(self.num_arms)
         
     def select_arm(self) -> int:
