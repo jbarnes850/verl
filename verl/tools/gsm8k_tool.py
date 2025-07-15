@@ -173,6 +173,12 @@ class Gsm8kTool(BaseTool):
                 result_str = json.dumps(result) if not isinstance(result, str) else result
                 print(f"[TOOL CALL] Success! Result length: {len(result_str)} chars")
                 
+                # Log a preview of the result for debugging
+                if len(result_str) > 200:
+                    print(f"[TOOL CALL] Result preview: {result_str[:200]}...")
+                else:
+                    print(f"[TOOL CALL] Result: {result_str}")
+                
                 # Intelligently limit result size for training efficiency
                 if len(result_str) > 8000:
                     if isinstance(result, list) and len(result) > 20:
