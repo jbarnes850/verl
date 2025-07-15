@@ -276,6 +276,7 @@ class AsyncRolloutRequest(BaseModel):
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
+            # print(f"DEBUG get_generation_prompt_ids: use_inference_chat_template=True, tools={bool(tools)}, num_tools={len(tools) if tools else 0}", flush=True)
             generation_prompt_ids = self._handle_apply_chat_template(
                 processing_class,
                 messages,

@@ -35,7 +35,7 @@ from sglang.srt.managers.tokenizer_manager import (
     ResumeMemoryOccupationReqInput,
     UpdateWeightsFromTensorReqInput,
 )
-from sglang.srt.openai_api.protocol import Tool
+from sglang.srt.entrypoints.openai.protocol import Tool
 from sglang.srt.sampling.sampling_params import SamplingParams
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
@@ -58,7 +58,7 @@ from verl.interactions.base import BaseInteraction
 from verl.interactions.utils.interaction_registry import initialize_interactions_from_config
 from verl.third_party.sglang import parallel_state as sglang_ps
 from verl.tools.base_tool import BaseTool
-from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall
+from verl.tools.schemas import OpenAIFunctionCallSchema, OpenAIFunctionParsedSchema, OpenAIFunctionToolCall, OpenAIFunctionToolSchema
 from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.net_utils import is_ipv6
@@ -289,7 +289,18 @@ class SGLangRollout(BaseRollout):
             self._sgl_tools,
             self._function_call_parser,
         ) = self._initialize_tools(config, processing_class)
+        print(f"DEBUG: After _initialize_tools: _tool_schemas={bool(self._tool_schemas)}, len={len(self._tool_schemas) if self._tool_schemas else 0}", flush=True)
+        print(f"DEBUG: _tool_map keys: {list(self._tool_map.keys()) if self._tool_map else 'None'}", flush=True)
         self.interaction_map: dict[str, BaseInteraction] = self._initialize_interactions(config)
+        
+        # Tool usage enforcement configuration
+        print(f"DEBUG: multi_turn config: {config.multi_turn}", flush=True)
+        self.force_tool_usage = config.multi_turn.get("force_tool_usage", False)
+        print(f"DEBUG: force_tool_usage = {self.force_tool_usage}", flush=True)
+        if self.force_tool_usage:
+            print("SGLang rollout: Forcing tool usage with tool_choice=required", flush=True)
+            logger.info("SGLang rollout: Forcing tool usage with tool_choice=required")
+        
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
         logger.info(
@@ -811,6 +822,8 @@ class SGLangRollout(BaseRollout):
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
                     parsed_tool_calls = _req.messages[-1].tool_calls
+                    print(f"SGLang rollout: Executing {len(parsed_tool_calls)} tool calls: {[tc.function.name for tc in parsed_tool_calls]}", flush=True)
+                    logger.info(f"SGLang rollout: Executing {len(parsed_tool_calls)} tool calls: {[tc.function.name for tc in parsed_tool_calls]}")
                     tool_call_results = await asyncio.gather(
                         *[
                             self._tool_map[tool_call.function.name].execute(
@@ -1156,9 +1169,30 @@ class SGLangRollout(BaseRollout):
             zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list)
         ):
             for rollout_offset in range(n):
+                if data_idx == 0 and rollout_offset == 0:  # Only debug once
+                    print(f"DEBUG: self._tool_schemas = {bool(self._tool_schemas)}, len = {len(self._tool_schemas) if self._tool_schemas else 0}", flush=True)
+                    print(f"DEBUG: non_tensor_batch keys = {prompts.non_tensor_batch.keys()}", flush=True)
                 if self._tool_schemas:
-                    _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
-                    _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                    if "tools_kwargs" in prompts.non_tensor_batch:
+                        _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
+                        if data_idx == 0:  # Only debug first item to avoid spam
+                            print(f"DEBUG: tools_kwargs[0] = {_tools_kwargs}", flush=True)
+                        # If tools_kwargs is empty, use all available tools
+                        if not _tools_kwargs:
+                            if data_idx == 0:
+                                print("INFO: tools_kwargs is empty, using all available tools", flush=True)
+                            _tools_kwargs = {tool_name: {} for tool_name in self._tool_map.keys()}
+                            # Convert dict schemas to OpenAIFunctionToolSchema objects
+                            _tool_schemas = [OpenAIFunctionToolSchema.model_validate(schema) for schema in self._tool_schemas]
+                        else:
+                            # Get dict schemas and convert to OpenAIFunctionToolSchema objects
+                            dict_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                            _tool_schemas = [OpenAIFunctionToolSchema.model_validate(schema) for schema in dict_schemas]
+                    else:
+                        print("WARNING: tool_schemas exist but no tools_kwargs in data, using all available tools", flush=True)
+                        _tools_kwargs = {tool_name: {} for tool_name in self._tool_map.keys()}
+                        # Convert dict schemas to OpenAIFunctionToolSchema objects
+                        _tool_schemas = [OpenAIFunctionToolSchema.model_validate(schema) for schema in self._tool_schemas]
                     _input_ids = None
                     _attention_mask = None
                 else:
@@ -1172,6 +1206,10 @@ class SGLangRollout(BaseRollout):
                 else:
                     _interaction_kwargs = {}
 
+                if data_idx == 0 and rollout_offset == 0:  # Only debug once
+                    print(f"DEBUG: Creating AsyncRolloutRequest with tool_schemas={bool(_tool_schemas)}, len={len(_tool_schemas) if _tool_schemas else 0}", flush=True)
+                    if _tool_schemas:
+                        print(f"DEBUG: First tool schema: {_tool_schemas[0] if _tool_schemas else 'None'}", flush=True)
                 req = AsyncRolloutRequest(
                     batch_data_id=data_idx,
                     rollout_offset=rollout_offset,
@@ -1247,12 +1285,17 @@ class SGLangRollout(BaseRollout):
             processing_class=self.processing_class,
         )
 
+        # Add tool_choice enforcement if enabled
+        if self.force_tool_usage and self._tool_schemas:
+            json_request["tool_choice"] = "required"
+            logger.info(f"SGLang rollout: Added tool_choice=required to request")
+        
         # json_request already contains sampling_params
         # Filter only valid SamplingParams arguments
         valid_sampling_params = {}
         temp_sampling_params = SamplingParams()  # Create temporary instance to check valid attributes
         for k, v in json_request.items():
-            if k not in ["messages", "model", "tools"] and hasattr(temp_sampling_params, k):
+            if k not in ["messages", "model", "tools", "tool_choice"] and hasattr(temp_sampling_params, k):
                 valid_sampling_params[k] = v
         output = await self._handle_engine_call(req, valid_sampling_params)
         # it can be Dict or AsyncIterator[Dict]
@@ -1276,6 +1319,23 @@ class SGLangRollout(BaseRollout):
                 }
             )
             id = content["meta_info"]["id"]
+
+        # Check if tools were used when tool_choice=required
+        if self.force_tool_usage and self._tool_schemas:
+            tool_calls_made = False
+            for choice in choices:
+                if choice.get("message", {}).get("tool_calls"):
+                    tool_calls_made = True
+                    break
+                # Also check finish_reason for tool_calls
+                if choice.get("finish_reason") == "tool_calls":
+                    tool_calls_made = True
+                    break
+            
+            if not tool_calls_made:
+                error_msg = f"SGLang rollout: No tool calls made despite tool_choice=required. Choices: {choices}"
+                logger.error(error_msg)
+                raise RuntimeError(f"Model failed to use tools despite tool_choice=required in SGLang rollout")
 
         return {
             "id": "chatcmpl-" + id,

@@ -1006,7 +1006,7 @@ class SECCurriculum:
             alpha: TD(0) learning rate (SEC paper: 0.3)
             tau: Softmax temperature (SEC paper: 0.5)
         """
-        self.num_arms = 12  # SEC paper: 4 skills × 3 difficulties
+        self.num_arms = 4  # Focus on TEXT skill with 4 difficulty levels
         self.alpha = alpha
         self.tau = tau
         # Initialize with small random values to encourage exploration

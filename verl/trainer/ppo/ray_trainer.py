@@ -265,11 +265,15 @@ def compute_advantage(
         # Initialize the mask for GRPO calculation
         grpo_calculation_mask = data.batch["response_mask"]
         if multi_turn:
-            # If multi-turn, replace the mask with the relevant part of loss_mask
+            # If multi-turn, check if loss_mask exists, otherwise use response_mask
             # Get length from the initial response mask
             response_length = grpo_calculation_mask.size(1)
             # This mask is the one intended for GRPO
-            grpo_calculation_mask = data.batch["loss_mask"][:, -response_length:]
+            if "loss_mask" in data.batch:
+                grpo_calculation_mask = data.batch["loss_mask"][:, -response_length:]
+            else:
+                # In multi-turn without loss_mask, use response_mask as is
+                grpo_calculation_mask = data.batch["response_mask"]
         # Call compute_grpo_outcome_advantage with parameters matching its definition
         advantages, returns = core_algos.compute_grpo_outcome_advantage(
             token_level_rewards=data.batch["token_level_rewards"],

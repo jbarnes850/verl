@@ -97,8 +97,19 @@ class CompletionCallback(ABC):
 class ToolCompletionCallback(CompletionCallback):
     def __init__(self, config: DictConfig, scheduler: "ChatCompletionScheduler"):
         super().__init__(config, scheduler)
+        
+        self.force_tool_usage = config.actor_rollout_ref.rollout.multi_turn.get("force_tool_usage", False)
+        if self.force_tool_usage:
+            print(f"ToolCompletionCallback: Forcing tool usage with tool_choice=required")
 
         # TODO: add reward manager to calculate reward score once a sample finish
+
+    @property
+    def extra_body(self) -> Dict[str, Any]:
+        """Add tool_choice: required to force tool usage when enabled."""
+        if self.force_tool_usage and self.tool_schemas:
+            return {"tool_choice": "required"}
+        return super().extra_body
 
     async def __call__(self, messages: List[Dict[str, str]], completions: ChatCompletion, info: Dict[str, Any]):
         message = completions.choices[0].message.model_dump(exclude_unset=True, exclude_none=True)
@@ -114,7 +125,12 @@ class ToolCompletionCallback(CompletionCallback):
 
         # STEP 1: check if the model called tools
         if finish_reason != "tool_calls":
-            print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] No tool called, done!")
+            if self.force_tool_usage:
+                error_msg = f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] ERROR: No tool called despite tool_choice=required!"
+                print(error_msg)
+                raise RuntimeError(f"Model failed to use tools despite tool_choice=required. finish_reason: {finish_reason}")
+            else:
+                print(f"[id={completions.id},turn={len(messages)},finish_reason={finish_reason}] No tool called, done!")
             return
 
         # STEP 2: call tools

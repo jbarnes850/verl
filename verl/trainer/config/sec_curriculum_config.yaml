@@ -11,17 +11,17 @@ data:
   # CRMArena data configuration
   # Data already generated in parquet format - no task lists needed
   
-  # Data paths (will be auto-generated from CRMArena data)
-  train_files: ["./data/verl_format/train.parquet"]
-  val_files: ["./data/verl_format/val.parquet"]
+  # Data paths for TEXT skill only dataset
+  train_files: ["./data/verl_text_only/train.parquet"]
+  val_files: ["./data/verl_text_only/val.parquet"]
   
   prompt_key: prompt
   reward_fn_key: data_source
   max_prompt_length: 1024
   max_response_length: 4096
   
-  # SEC paper requirement
-  train_batch_size: 256
+  # SEC paper requirement (adjusted for TEXT-only dataset)
+  train_batch_size: 128  # Reduced since we have 350 train examples
   val_batch_size: 32
   
   shuffle: False  # SEC curriculum handles sampling
@@ -30,7 +30,7 @@ data:
   tokenizer: null
   use_shm: false
   return_raw_input_ids: false
-  return_raw_chat: false
+  return_raw_chat: true
   return_full_prompt: false
   validation_shuffle: false
   filter_overlong_prompts: false
@@ -70,10 +70,10 @@ actor_rollout_ref:
     use_fused_kernels: false
     fused_kernel_options:
       impl_backend: torch
-    trust_remote_code: false
+    trust_remote_code: true  # Enable for Qwen models to use their custom code
     
   rollout:
-    name: vllm
+    name: sglang
     mode: sync
     # SEC paper requirement: 8 rollouts
     n: 8
@@ -129,18 +129,19 @@ actor_rollout_ref:
     
     # Multi-turn configuration
     multi_turn:
-      enable: false
-      max_assistant_turns: null
-      tool_config_path: null
+      enable: true
+      max_assistant_turns: 10
+      tool_config_path: /home/user/verl/verl/trainer/config/crmarena_tools_config.yaml
       max_user_turns: null
       max_parallel_calls: 1
-      max_tool_response_length: 256
+      max_tool_response_length: 8192  # Increased for database results
       tool_response_truncate_side: middle
       interaction_config_path: null
       completion_callback: null
-      use_inference_chat_template: false
+      use_inference_chat_template: true
       tokenization_sanity_check_mode: strict
-      format: hermes
+      format: qwen  # Changed from hermes to qwen for proper tool support
+      force_tool_usage: true  # Force model to use tools on every example
     
     # Profiler configuration
     profiler:
@@ -157,7 +158,7 @@ actor_rollout_ref:
     strategy: fsdp
     
     # Required: PPO batch configuration
-    ppo_mini_batch_size: 256
+    ppo_mini_batch_size: 128  # Matching train_batch_size
     ppo_micro_batch_size: null
     ppo_micro_batch_size_per_gpu: 8  # Reduced for memory with long sequences
     
@@ -276,7 +277,7 @@ critic:
   model:
     path: Qwen/Qwen3-4B
     enable_gradient_checkpointing: true
-    trust_remote_code: false
+    trust_remote_code: true  # Enable for Qwen models to use their custom code
     use_shm: false
     tokenizer_path: ${actor_rollout_ref.model.path}
     override_config: 
@@ -296,7 +297,7 @@ critic:
     warmup_style: constant
     total_training_steps: -1
     
-  ppo_mini_batch_size: 256
+  ppo_mini_batch_size: 128  # Matching train_batch_size
   ppo_epochs: 1
   grad_clip: 1.0
   cliprange_value: 0.5
@@ -357,7 +358,7 @@ reward_model:
     external_lib: ${actor_rollout_ref.model.external_lib}
     use_remove_padding: false
     use_fused_kernels: ${actor_rollout_ref.model.use_fused_kernels}
-    trust_remote_code: false
+    trust_remote_code: true  # Enable for Qwen models to use their custom code
     
     fsdp_config:
       wrap_policy:
@@ -391,8 +392,8 @@ reward_model:
 # trainer config
 trainer:
   # Project and experiment names
-  project_name: sec_curriculum_verl_qwen3_4b_long
-  experiment_name: sec_grpo_qwen3_4b_200steps
+  project_name: sec_text_only_verl_qwen3_4b
+  experiment_name: sec_grpo_text_4arms_qwen3_4b
   
   # Training epochs and steps
   total_epochs: 50
@@ -415,9 +416,9 @@ trainer:
   validation_data_dir: null
   
   # WandB configuration
-  wandb_project: "sec-curriculum-verl-qwen3-4b-long"
-  wandb_run_name: "sec-grpo-qwen3-4b-200steps"
-  wandb_tags: ["SEC", "GRPO", "CRMArena", "curriculum-learning"]
+  wandb_project: "sec-text-only-verl-qwen3-4b"
+  wandb_run_name: "sec-grpo-text-4arms-qwen3-4b"
+  wandb_tags: ["SEC", "GRPO", "CRMArena", "TEXT-skill", "4-arms", "database-access"]
   
   # Profiling configuration
   profile_steps: null
@@ -457,7 +458,7 @@ trainer:
 custom_reward_function:
   # The path to the file containing your customized reward function.
   # If not specified, pre-implemented reward functions will be used.
-  path: /home/user/verl/crm-arena/src/crm_reward_functions.py
+  path: /home/user/verl/verl/utils/reward/crm_text_reward.py
   # The name of the reward function within the specified file. Default is 'compute_score'.
   name: compute_score
   # Additional reward function kwargs
