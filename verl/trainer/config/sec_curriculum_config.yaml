@@ -140,8 +140,8 @@ actor_rollout_ref:
       completion_callback: null
       use_inference_chat_template: true
       tokenization_sanity_check_mode: strict
-      format: qwen  # Changed from hermes to qwen for proper tool support
-      force_tool_usage: true  # Force model to use tools on every example
+      format: qwen3  # Use Qwen3's native tool calling format
+      force_tool_usage: false  # Let model naturally use tools (Qwen3 consistently uses them)
     
     # Profiler configuration
     profiler:

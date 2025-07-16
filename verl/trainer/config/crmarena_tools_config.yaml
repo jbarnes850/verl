@@ -9,7 +9,7 @@ tools:
       type: function
       function:
         name: database_query
-        description: Execute CRM database queries to retrieve and analyze customer data
+        description: "IMPORTANT: Always use 'database_query' as the function name. Execute CRM database queries to retrieve and analyze customer data. This is the ONLY valid function name - do not call individual functions directly."
         parameters:
           type: object
           properties:

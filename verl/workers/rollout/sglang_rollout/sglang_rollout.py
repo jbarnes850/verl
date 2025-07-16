@@ -299,7 +299,8 @@ class SGLangRollout(BaseRollout):
         print(f"DEBUG: force_tool_usage = {self.force_tool_usage}", flush=True)
         if self.force_tool_usage:
             print("SGLang rollout: Forcing tool usage with tool_choice=required", flush=True)
-            logger.info("SGLang rollout: Forcing tool usage with tool_choice=required")
+        else:
+            print("SGLang rollout: Natural tool usage enabled (no EBNF constraint)", flush=True)
         
         # If turn on `free_cache_engine`, SGLang engine's KV cache
         # will be freed after each `generate_sequences` call.
@@ -496,7 +497,25 @@ class SGLangRollout(BaseRollout):
         logger.info(f"Initialize tools from configuration.: tool_list: {tool_list}")
         tool_schemas = [tool.get_openai_tool_schema().model_dump() for tool in tool_list]
         tool_map = {tool.name: tool for tool in tool_list}
-        tool_call_parser_type = get_tool_call_parser_type(processing_class)
+        
+        # Map config format names to SGLang parser types
+        if hasattr(config.multi_turn, 'format') and config.multi_turn.format:
+            format_to_parser = {
+                'qwen25': 'qwen25',
+                'qwen3': 'qwen3',
+                'mistral': 'mistral',
+                'llama3': 'llama3'
+            }
+            tool_call_parser_type = format_to_parser.get(config.multi_turn.format)
+            if tool_call_parser_type:
+                print(f"[DEBUG] Using tool call parser from config: {tool_call_parser_type} (format: {config.multi_turn.format})", flush=True)
+            else:
+                print(f"[DEBUG] Unknown format {config.multi_turn.format}, using auto-detection", flush=True)
+                tool_call_parser_type = get_tool_call_parser_type(processing_class)
+        else:
+            tool_call_parser_type = get_tool_call_parser_type(processing_class)
+            print(f"[DEBUG] Auto-detected tool call parser: {tool_call_parser_type}", flush=True)
+            
         sgl_tools = [Tool.model_validate(tool_schema) for tool_schema in tool_schemas]
         function_call_parser = FunctionCallParser(
             sgl_tools,
@@ -767,6 +786,10 @@ class SGLangRollout(BaseRollout):
         _req = deepcopy(req)
         finish_reason_type = None
         output = None
+        
+        # Debug: Track request processing
+        print(f"[DEBUG] Processing request {_req.request_id[:8]} (batch_id={_req.batch_data_id}, rollout={_req.rollout_offset})", flush=True)
+        print(f"[DEBUG] Request has tools: {bool(_req.tool_schemas)}, num_tools={len(_req.tool_schemas) if _req.tool_schemas else 0}", flush=True)
 
         image_data = None
         video_data = None
@@ -824,16 +847,22 @@ class SGLangRollout(BaseRollout):
                     parsed_tool_calls = _req.messages[-1].tool_calls
                     print(f"SGLang rollout: Executing {len(parsed_tool_calls)} tool calls: {[tc.function.name for tc in parsed_tool_calls]}", flush=True)
                     logger.info(f"SGLang rollout: Executing {len(parsed_tool_calls)} tool calls: {[tc.function.name for tc in parsed_tool_calls]}")
-                    tool_call_results = await asyncio.gather(
-                        *[
-                            self._tool_map[tool_call.function.name].execute(
+                    # Execute tool calls with error handling
+                    tool_call_results = []
+                    for tool_call in parsed_tool_calls:
+                        if tool_call.function.name not in self._tool_map:
+                            print(f"[ERROR] Function '{tool_call.function.name}' not found in tool map. Available tools: {list(self._tool_map.keys())}", flush=True)
+                            print(f"[INFO] Model should use 'database_query' wrapper function instead of calling '{tool_call.function.name}' directly", flush=True)
+                            # Return an error message as tool result (matching expected tuple format)
+                            error_msg = f"Error: Function '{tool_call.function.name}' not available. Use 'database_query' function instead."
+                            tool_call_results.append((error_msg, 0.0, {}))
+                        else:
+                            result = await self._tool_map[tool_call.function.name].execute(
                                 _req.request_id,
                                 tool_call.function.arguments,
                                 **_req.tools_kwargs[tool_call.function.name].get("execute_kwargs", {}),
                             )
-                            for tool_call in parsed_tool_calls
-                        ]
-                    )
+                            tool_call_results.append(result)
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results):
                         _req.update_metrics(metrics, tool_call.function.name)
@@ -860,14 +889,18 @@ class SGLangRollout(BaseRollout):
                     break
                 else:
                     if self._function_call_parser and self._function_call_parser.has_tool_call(content):
+                        print(f"[DEBUG] Tool call detected in response for request {_req.request_id[:8]}", flush=True)
                         finish_reason_type = FinishReasonTypeEnum.TOOL_CALL
                         _req.state = AsyncRolloutRequestStateEnum.TOOL_CALLING
                         try:
                             normed_content, tool_calls = self._function_call_parser.parse_non_stream(content)
-                        except JSONDecodeError:
+                            print(f"[DEBUG] Parsed {len(tool_calls)} tool calls", flush=True)
+                        except JSONDecodeError as e:
+                            print(f"[DEBUG] JSONDecodeError parsing tool calls: {e}", flush=True)
                             normed_content = content
                             tool_calls = []
-                        except AttributeError:
+                        except AttributeError as e:
+                            print(f"[DEBUG] AttributeError parsing tool calls: {e}", flush=True)
                             normed_content = content
                             tool_calls = []
                         parsed_tool_calls = []
@@ -897,6 +930,12 @@ class SGLangRollout(BaseRollout):
                             _req.state = AsyncRolloutRequestStateEnum.COMPLETED
                             break
                     else:
+                        print(f"[DEBUG] No tool call detected for request {_req.request_id[:8]}, force_tool_usage={self.force_tool_usage}", flush=True)
+                        if self.force_tool_usage and self._tool_schemas:
+                            print(f"[WARNING] Tool usage was forced but no tool call detected in response!", flush=True)
+                            print(f"[DEBUG] Response content preview: {content[:200]}...", flush=True)
+                        elif self._tool_schemas:
+                            print(f"[INFO] Model chose not to use tools for this request", flush=True)
                         _req.add_assistant_message(
                             self.processing_class,
                             content,
@@ -965,15 +1004,24 @@ class SGLangRollout(BaseRollout):
         self, _req: AsyncRolloutRequest, sampling_params: dict, image_data: Optional[list[Any]] = None
     ) -> dict:
         generation_prompt_ids = _req.get_generation_prompt_ids(self.processing_class)
+        
+        # Note: Tools are already included in the prompt through the chat template
+        # SGLang doesn't accept tools as a separate parameter in async_generate
+        # The force_tool_usage is enforced through the chat template system prompt
+        if _req.tool_schemas and self.force_tool_usage:
+            print(f"[DEBUG] Request {_req.request_id[:8]} has tools in prompt (force_tool_usage=True)", flush=True)
+        
         return await self._handle_engine_generate(generation_prompt_ids, sampling_params, image_data)
 
     async def _handle_engine_generate(
         self, generation_prompt_ids: list[int], sampling_params: dict, image_data: Optional[list[Any]] = None
     ) -> dict:
         max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(generation_prompt_ids) - 1)
+        
         kwargs = sampling_params.copy()
         kwargs["max_new_tokens"] = max_new_tokens
         kwargs["n"] = 1  # group size is supported in preprocess
+        
         output = await self._engine.async_generate(
             input_ids=generation_prompt_ids,
             sampling_params=kwargs,
@@ -983,6 +1031,9 @@ class SGLangRollout(BaseRollout):
         return output
 
     async def _handle_pending_state(self, _req: AsyncRolloutRequest) -> AsyncRolloutRequest:
+        # Don't modify messages to avoid tokenization mismatch
+        # Tool enforcement will be handled through response validation
+        
         if _req.tool_schemas is not None:
             tool_creation_coroutines = []
             for tool_schema in _req.tool_schemas:
@@ -1020,17 +1071,45 @@ class SGLangRollout(BaseRollout):
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         tgt_device = prompts.batch["input_ids"].device
+        
+        # Debug: Track number of examples
+        batch_size = prompts.batch["input_ids"].size(0)
+        print(f"[DEBUG] _req_level_generate_sequences: Processing batch_size={batch_size}", flush=True)
+        
+        # Check if this is already post-rollout data
+        if "raw_prompt_ids" in prompts.non_tensor_batch:
+            actual_unique_examples = len(prompts.non_tensor_batch["raw_prompt_ids"])
+            print(f"[DEBUG] Actual unique examples in batch: {actual_unique_examples}", flush=True)
+        
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
                 prompts,
                 n=1 if is_validate else self.config.n,
             )
+            print(f"[DEBUG] Created {len(req_list)} AsyncRolloutRequests (n={1 if is_validate else self.config.n})", flush=True)
             loop = asyncio.get_event_loop()
             output_req_list = loop.run_until_complete(
                 asyncio.gather(
                     *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
                 )
             )
+            print(f"[DEBUG] Completed processing {len(output_req_list)} requests", flush=True)
+            
+            # Count tool usage
+            tool_used_count = 0
+            no_tool_count = 0
+            for req in output_req_list:
+                if req.messages and len(req.messages) > 0:
+                    last_msg = req.messages[-1]
+                    if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                        tool_used_count += 1
+                    else:
+                        no_tool_count += 1
+            
+            print(f"[DEBUG] Tool usage summary: {tool_used_count}/{len(output_req_list)} requests used tools", flush=True)
+            if self.force_tool_usage and no_tool_count > 0:
+                print(f"[WARNING] {no_tool_count} requests did NOT use tools despite force_tool_usage=True!", flush=True)
+            
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
             sorted_output_req_list = None
